@@ -1,0 +1,26 @@
+{
+  "name": "scrapi",
+  "version": "1.0.0",
+  "description": "Provides a framework to put a rest API on legacy systems that do not expose one using playwright automation to scrape them on demand. ",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "vitest index.test.ts",
+    "build:code": "rm -rf dist/* && mkdir dist && cp ./package.json dist/package.json && tsc",
+    "build:install": "cd dist && npm install --omit=dev",
+    "build:zip": "cd dist && zip -r ./scrapi.zip ."
+  },
+  "author": "Darren McDowell",
+  "license": "ISC",
+  "dependencies": {
+    "@phila/philaroute": "^1.0.10",
+    "@sparticuz/chromium-min": "^137.0.1",
+    "pdf.js-extract": "^0.2.1",
+    "playwright": "^1.53.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  }
+}

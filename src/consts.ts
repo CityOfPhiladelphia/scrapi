@@ -1,0 +1,1 @@
+export const USJS_PDF_PATH = './src/tmp/usjs';

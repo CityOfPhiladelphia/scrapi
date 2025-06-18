@@ -1,0 +1,21 @@
+{
+  "name": "scrapi-cdk",
+  "version": "1.0.0",
+  "bin": {
+    "cdk": "bin/cdk.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "deploy:sandbox": "cdk deploy --all --profile SandboxDevelopers --require-approval never",
+    "destroy": "cdk destroy"
+  },
+  "dependencies": {
+    "aws-cdk": "^2.1018.1",
+    "aws-cdk-lib": "^2.0.0",
+    "constructs": "^10.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.0.0"
+  }
+}
