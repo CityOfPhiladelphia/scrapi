@@ -8,9 +8,11 @@
     "build": "tsc",
     "watch": "tsc -w",
     "deploy:sandbox": "cdk deploy --all --profile SandboxDevelopers --require-approval never",
+    "deploy:personal": "cdk deploy --all --profile personal --require-approval never",
     "destroy": "cdk destroy"
   },
   "dependencies": {
+    "@types/node": "^24.0.3",
     "aws-cdk": "^2.1018.1",
     "aws-cdk-lib": "^2.0.0",
     "constructs": "^10.0.0"

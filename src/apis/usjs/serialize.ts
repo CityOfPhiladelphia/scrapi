@@ -4,8 +4,8 @@ import assert from 'assert';
 /** Local Imports 
  *  Note - setup aliases in tsconfig.json for cleaner imports
 */
-import { pdf } from '@src/_parsers/pdf.js';
-import { USJS_PDF_PATH } from '@src/consts.js'
+import { pdf } from '../../_parsers/pdf.js';
+import { USJS_PDF_PATH } from '../../consts.js'
 /** Types */
 import { Case, Charge, CourtCase, CourtSentence, Defendant, Sentence, SerializedSummary } from "./types.js";
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';

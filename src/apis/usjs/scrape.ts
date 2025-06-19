@@ -1,6 +1,6 @@
 import { chromium  as playwright } from 'playwright';
 import chromium from '@sparticuz/chromium-min';
-import { USJS_PDF_PATH } from '@src/consts.js';
+import { USJS_PDF_PATH } from '../../consts.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 
 interface SummaryScrapeParams {
@@ -9,7 +9,7 @@ interface SummaryScrapeParams {
 };
 
 const summary = async (acc: RestAccumulator): Promise<RestAccumulator> => {
-  const { docketNumber, savePath } = acc.data.valid as Record<string, string> & SummaryScrapeParams;
+  const { docketNum } = acc.data.valid.parameters as Record<string, string> & SummaryScrapeParams;
   
   const browser = await playwright.launch({
     args: chromium.args,
@@ -23,7 +23,7 @@ const summary = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   await searchControl.selectOption('Docket Number');
   
   const docketInput = page.getByTitle('Docket Number');
-  await docketInput.fill(docketNumber);
+  await docketInput.fill(docketNum);
   await page.getByRole('button', { name: 'Search' }).click();
   await page.waitForTimeout(2000);
   

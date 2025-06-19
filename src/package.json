@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest index.test.ts",
-    "build:code": "rm -rf dist/* && mkdir dist && cp ./package.json dist/package.json && tsc",
+    "build:code": "rm -rf dist && mkdir dist && cp ./package.json dist/package.json && tsc",
     "build:install": "cd dist && npm install --omit=dev",
     "build:zip": "cd dist && zip -r ./scrapi.zip ."
   },

@@ -3,11 +3,7 @@ import { Construct } from "constructs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
-import path from 'node:path';
-import fs from 'node:fs';
-import assert from "node:assert";
 import { execFileSync } from "node:child_process";
-import { exec } from "aws-cdk";
 
 
 
@@ -24,7 +20,6 @@ export class ScrapiStack extends cdk.Stack {
         
         const proxyLambda = new nodejs.NodejsFunction(this, "proxy", {
             code: lambda.Code.fromAsset('../src/dist/scrapi.zip'),
-            // code: lambda.Code.fromAsset(path.resolve(__dirname, "../../src")),
             handler: "index.main",
             runtime: lambda.Runtime.NODEJS_22_X,
             // Required for Chromium to run in Lambda
@@ -34,7 +29,6 @@ export class ScrapiStack extends cdk.Stack {
             layers: [
                 chromeLayer
             ],
-            
         });
 
         // Define the API Gateway
@@ -51,12 +45,14 @@ export class ScrapiStack extends cdk.Stack {
         plan.addApiKey(apiKey);
         plan.addApiStage({ stage: api.deploymentStage });
 
-        // Integrate API Gateway with Lambda
-        const lambdaIntegration = new apigateway.LambdaIntegration(proxyLambda);
-        api.root.addMethod("ANY", lambdaIntegration, {
-            apiKeyRequired: true
+        api.root.
+        addProxy({
+            anyMethod: true,
+            defaultIntegration: new apigateway.LambdaIntegration(proxyLambda, {
+                proxy: true,
+            }),
         });
-
+   
         // Output the API URL
         new cdk.CfnOutput(this, "ApiUrl", {
             value: api.url,

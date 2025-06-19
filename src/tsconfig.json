@@ -7,13 +7,6 @@
       "es2022",
       "DOM"
     ],
-    "baseUrl": "./",
-    "paths": {
-      "@src/*": ["./*"],
-      "@apis/*": ["./apis/*"],
-      "@parsers/*": ["./_parsers/*"],
-      "@utils/*": ["./_utils/*"],
-    },
     "outDir": "./dist",
     "declaration": true,
     "strict": true,
