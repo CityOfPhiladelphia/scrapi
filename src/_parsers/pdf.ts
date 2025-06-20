@@ -8,7 +8,7 @@ const sortBy = {
     y: (data: Coordinate[]) => data.sort((a, b) => a.y - b.y),
 }
 
-const lines = (elements: Coordinate[], tolerance = 3): string[] => {
+const lines = (elements: Coordinate[], tolerance = 3): string[] => { 
     const { lines } = [...elements]
     .sort((a, b) => a.y - b.y)
     .reduce((acc, el) => {

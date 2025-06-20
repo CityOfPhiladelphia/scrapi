@@ -2,7 +2,7 @@ import { Router } from "@phila/philaroute";
 import { usjs } from "./apis/usjs/index.js";
 import type { APIGWV1Payload } from "@phila/philaroute/dist/aws.d.ts";
 
-/** Establish router outside handler  */
+/** Establish router outside handler to cache it  */
 export const router = Router({
     cors: {
         'Access-Control-Allow-Origin': '*',
