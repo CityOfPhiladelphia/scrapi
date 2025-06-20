@@ -15,10 +15,10 @@ Built on [@phila/philaroute](https://www.npmjs.com/package/@phila/philaroute) fo
 Designed for serverless deployment, with handlers compatible with AWS API Gateway and Lambda.
 
 ### Project Structure
-* #### index.ts — Main entry point, router setup, Lambda handler.
-* ### usjs — Example API for the Pennsylvania Unified Judicial System.
-* ### scrape.ts — Playwright-based scraping logic.
-* ### serialize.ts — Data transformation and response formatting.
+*  index.ts — Main entry point, router setup, Lambda handler.
+*  usjs — Example API for the Pennsylvania Unified Judicial System.
+*  scrape.ts — Playwright-based scraping logic.
+*  serialize.ts — Data transformation and response formatting.
 
 ## Current API's 
 * [USJS](../src/apis/usjs/Readme.md)
