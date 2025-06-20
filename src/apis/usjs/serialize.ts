@@ -62,13 +62,6 @@ const keyValueMatch = ({ line, regex }: KVMatch): string => {
 };
 
 
-/**
- * Retool the matchers to handle / work with Split |
- * Fix Name, Address matchers. 
- * Update charge matchers - much simpler, less repetition
- * Make much easier to parse the indentation and spacing
- */
-
 const matchers = (lines: string[]) => {
   return {
     person: {
@@ -246,6 +239,7 @@ type SliceProps = {
   lines: string[],
   reducer: (acc: number[], line: string, idx: number) => number[]
 }
+
 const slices = ({ lines, reducer}: SliceProps ) => {
   
   /** Find the slices of the array using the docket #'s */
