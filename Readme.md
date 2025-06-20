@@ -1,6 +1,10 @@
 # Scrapi
 Scrapi is a framework for exposing a REST API interface for legacy systems that do not natively provide one. It leverages browser automation (via Playwright) to interact with web-based systems, scrape data on demand, and present it through a modern, documented API. This approach enables integration, automation, and data access for systems that are otherwise inaccessible to programmatic workflows.
 
+This should be combined with low or no code automation tools to empower non-technical business owners to be able to own and change their own business logic with less reliance on technical support. 
+
+User web automation is necessarily brittle; pick your use cases wisely!
+
 ## Key Features
 * ### REST API for Legacy Systems:
 Exposes endpoints for systems that lack modern APIs, enabling integration with new applications and services.
