@@ -24,6 +24,6 @@ Designed for serverless deployment, with handlers compatible with AWS API Gatewa
 * [USJS](./src/apis/usjs/Readme.md)
 
 ## Getting Started: 
-* ### Deployment:
-[CDK Documentation](./cdk/README.md)
-[Adding an API](./src/apis/Readme.md)
+### Deployment:
+* [CDK Documentation](./cdk/README.md)
+* [Adding an API](./src/apis/Readme.md)

@@ -19,12 +19,27 @@ src/apis/myapi/
 
 Create an `index.ts` file in your new API directory.  
 Define your routes using the `router` and any middleware or handlers you need.
+These all utilize the RestAccumulator type from the @phila/philaroute package. 
+
+They can do anything you like, so long as they conform to the shape of: 
+async (acc: RestAccumulator): Promise<RestAccumulator>.
+
+That is, they should take an input of RestAccumulator and return a RestAccumulator. 
+
+Generally this will mean you have a 'scraper' function and a parser. 
+
+Pure functions using the @phila/philarouter framework are encouraged. 
+Having a common interface and breaking them out as pure functions keeps them more orthogonal, easier to modify and easier to test against. 
 
 **Example:**
+Working Example: 
+[USJS API](./usjs/index.ts)
 
+Custom Example:
 ```typescript
 // filepath: src/apis/myapi/index.ts
 import { router } from '../../index.js';
+import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts'
 
 export enum MyApiRoute {
   Example = '/myapi/v1/example',
@@ -34,8 +49,19 @@ export const myapi = () => {
   const example = router.path(MyApiRoute.Example);
 
   example.get([
-    async (ctx) => {
-      ctx.body = { message: 'Hello from MyAPI!' };
+    // Example of a custom playwright function
+    async (acc: RestAccumulator): Promise<RestAccumulator>  => {
+      const result = myPlaywrightScript()
+      acc.data.result ??= result;
+      return acc;
+    }
+    // Example of a custom function
+    async (acc: RestAccumulator): Promise<RestAccumulator> => {
+      // Acc.data is now accessible to this next function
+
+      acc.response.body = `Hello World! Here is ${JSON.stringify(acc.data)}`
+
+      return acc;
     }
   ]);
 };
@@ -56,6 +82,8 @@ import { Router } from "@phila/philaroute";
 import { usjs } from "./apis/usjs/index.js";
 import { myapi } from "./apis/myapi/index.js"; // <-- Import your API
 
+// Code defined outside the handler will run only on cold start
+// and remain cached in memory
 export const router = Router({
   cors: {
     'Access-Control-Allow-Origin': '*',
@@ -65,9 +93,12 @@ export const router = Router({
 });
 
 // Register APIs
+// Technically, you could just inline this here - 
+// Having the registration external just keeps it more modular.
 usjs();
 myapi(); // <-- Register your API here
 
+// Your Lambda handler 
 export const main = async (event) => {
   return await router.routeToPath(event);
 };
@@ -75,7 +106,7 @@ export const main = async (event) => {
 
 ---
 
-## 4. (Optional) Add Documentation
+## 4.  Add Documentation
 
 - Create a `Readme.md` in your API directory to document its endpoints and usage.
 - Update the main project `Readme.md` to link to your new API.
