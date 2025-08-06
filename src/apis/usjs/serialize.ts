@@ -7,7 +7,7 @@ import assert from 'assert';
 import { pdf } from '../../_parsers/pdf.js';
 import { USJS_PDF_PATH } from '../../consts.js'
 /** Types */
-import { Case, Charge, CourtCase, CourtSentence, Defendant, Sentence, SerializedSummary } from "./types.js";
+import { Case, Charge, CourtCase, CourtSentence, Defendant, FileType, Sentence, SerializedSummary } from "./types.js";
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 
 
@@ -19,7 +19,7 @@ import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 
 /** Driver Function */
 async function summary (acc: RestAccumulator): Promise<RestAccumulator> {
-  const data = await pdf.extract(USJS_PDF_PATH + '/summary.pdf');
+  const data = await pdf.extract(USJS_PDF_PATH + `${FileType.Summary}/.pdf`);
     
     assert(data && data.pages && Array.isArray(data.pages), 
     `PDF does not contain valid pages or was not able to be parsed: ${JSON.stringify(data)}`
@@ -257,7 +257,43 @@ const slices = ({ lines, reducer}: SliceProps ) => {
   })
 }
 
+/** Docket Serialize  */
+const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
+  const data = await pdf.extract(USJS_PDF_PATH + `${FileType.DocketSheet}/.pdf`);
+    
+  assert(data && data.pages && Array.isArray(data.pages), 
+  `PDF does not contain valid pages or was not able to be parsed: ${JSON.stringify(data)}`
+  );
+  
+  const text = data.pages
+  .reduce((acc, page, idx) => {
+      /** Get the lines per page */
+      const lines = pdf.lines.group(page.content);
+      acc.push(lines);
+
+      return acc;
+  }, [] as string[][])
+  .flat()
+  
+  // Pattern is find line, extract info from line
+  const [addressLine] = text.filter((line) => { return line.match(/.*City\/State\/Zip.*/)})
+  assert(addressLine, 'Docket Sheet does not contain a zip code');
+
+  const zipcode = addressLine.split('City/State/Zip:')[2].split('  ')[1].trim();
+  
+  const [total] = text.filter((line) => { return line.match(/^.*Grand Totals.*$/)})
+  const [assessment, payments, adjustments, nonmonetary, balance] = total.match(/\$(\d\.\d{2})/) as RegExpMatchArray
+
+  acc.response.body = {
+    zipcode, 
+    balance
+  };
+
+  return acc;
+}
+
 
 export const serialize = { 
-  summary
+  summary,
+  docket
 }

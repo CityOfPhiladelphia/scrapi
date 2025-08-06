@@ -2,13 +2,21 @@ import { chromium  as playwright } from 'playwright';
 import chromium from '@sparticuz/chromium-min';
 import { USJS_PDF_PATH } from '../../consts.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
+import { FileType } from './types.js';
+
+
+
+interface DocumentType {
+  type: FileType
+};
 
 interface SummaryScrapeParams {
   docketNumber: string;
   savePath: string;
 };
 
-const summary = async (acc: RestAccumulator): Promise<RestAccumulator> => {
+
+const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): Promise<RestAccumulator> => {
   const { docketNum } = acc.data.valid.parameters as Record<string, string> & SummaryScrapeParams;
   
   const browser = await playwright.launch({
@@ -27,9 +35,7 @@ const summary = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   await page.getByRole('button', { name: 'Search' }).click();
   await page.waitForTimeout(2000);
   
-  const link =  page.locator('[href*="/Report/CpCourtSummary?"]');
-  const href = await link.getAttribute('href');
-  const url = `https://ujsportal.pacourts.us${href}`;
+  const link =  page.locator(`[href*="/Report/${type}?"]`);
   
   const [download] = await Promise.all([
     page.waitForEvent('download'),
@@ -38,12 +44,14 @@ const summary = async (acc: RestAccumulator): Promise<RestAccumulator> => {
    ])
 
    console.log("downloaded path: ", await download.path());
-   await download.saveAs(`${USJS_PDF_PATH}/summary.pdf`);
+
+   await download.saveAs(`${USJS_PDF_PATH}/${type}.pdf`);
    await browser.close();
 
    return acc;
 };
 
 export const scrape = {
-  summary,
+  summary: downloadFile({ type: FileType.Summary }),
+  docket: downloadFile({ type: FileType.DocketSheet })
 };

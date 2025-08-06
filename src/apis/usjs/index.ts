@@ -15,11 +15,18 @@ export enum USJSRoute {
 export const usjs = () => {     
     // Court Summary Retrieval and Parsing
     const summary = router.path(USJSRoute.Summary);
-
+    
     summary.get([
         validate.parameters(['docketNum']),
         scrape.summary,
         serialize.summary
     ]);
-
+    
+    // Docket Retrieval and Parsing
+    const docket = router.path(USJSRoute.Docket);
+    docket.get([
+        validate.parameters(['docketNum']),
+        scrape.docket,
+        serialize.docket
+    ])
 }

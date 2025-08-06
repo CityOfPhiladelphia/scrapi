@@ -1,3 +1,8 @@
+export enum FileType {
+    Summary = 'CpCourtSummary',
+    DocketSheet = 'CpDocketSheet'
+  }
+
 export enum Sentence {
     Date = 'sentenceDt',
     Type = 'sentenceType',
