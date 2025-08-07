@@ -1,1 +1,1 @@
-export const USJS_PDF_PATH = '/tmp/usjs';
+export const USJS_PDF_PATH = process.env.LOCAL ? './tmp/usjs/' : '/tmp/usjs/';

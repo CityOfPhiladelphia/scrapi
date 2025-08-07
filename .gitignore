@@ -5,3 +5,5 @@ usjs.test.ts
 dist
 coverage
 .DS_Store
+.env
+.csv

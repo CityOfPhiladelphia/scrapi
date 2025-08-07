@@ -1,5 +1,5 @@
 import { chromium  as playwright } from 'playwright';
-import chromium from '@sparticuz/chromium-min';
+import chromium from '@sparticuz/chromium';
 import { USJS_PDF_PATH } from '../../consts.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 import { FileType } from './types.js';
@@ -19,10 +19,12 @@ interface SummaryScrapeParams {
 const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): Promise<RestAccumulator> => {
   const { docketNum } = acc.data.valid.parameters as Record<string, string> & SummaryScrapeParams;
   
+  const args = process.env.LOCAL ? {}: { executablePath: await chromium.executablePath("/opt/nodejs/node_modules/@sparticuz/chromium/bin") }
+
   const browser = await playwright.launch({
     args: chromium.args,
     headless: true,
-    executablePath: await chromium.executablePath("/opt/nodejs/node_modules/@sparticuz/chromium/bin")
+    ...args  
   });
 
   const page = await browser.newPage();
@@ -32,7 +34,7 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
   
   const docketInput = page.getByTitle('Docket Number');
   await docketInput.fill(docketNum);
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search' }).nth(1).click();
   await page.waitForTimeout(2000);
   
   const link =  page.locator(`[href*="/Report/${type}?"]`);
@@ -46,7 +48,7 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
    console.log("downloaded path: ", await download.path());
 
    await download.saveAs(`${USJS_PDF_PATH}/${type}.pdf`);
-   await browser.close();
+  // await browser.close();
 
    return acc;
 };

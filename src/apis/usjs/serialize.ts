@@ -19,7 +19,7 @@ import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 
 /** Driver Function */
 async function summary (acc: RestAccumulator): Promise<RestAccumulator> {
-  const data = await pdf.extract(USJS_PDF_PATH + `${FileType.Summary}/.pdf`);
+  const data = await pdf.extract(USJS_PDF_PATH + `${FileType.Summary}.pdf`);
     
     assert(data && data.pages && Array.isArray(data.pages), 
     `PDF does not contain valid pages or was not able to be parsed: ${JSON.stringify(data)}`
@@ -259,14 +259,14 @@ const slices = ({ lines, reducer}: SliceProps ) => {
 
 /** Docket Serialize  */
 const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
-  const data = await pdf.extract(USJS_PDF_PATH + `${FileType.DocketSheet}/.pdf`);
+  const data = await pdf.extract(USJS_PDF_PATH + `${FileType.DocketSheet}.pdf`);
     
   assert(data && data.pages && Array.isArray(data.pages), 
   `PDF does not contain valid pages or was not able to be parsed: ${JSON.stringify(data)}`
   );
   
   const text = data.pages
-  .reduce((acc, page, idx) => {
+  .reduce((acc, page) => {
       /** Get the lines per page */
       const lines = pdf.lines.group(page.content);
       acc.push(lines);
@@ -279,16 +279,23 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   const [addressLine] = text.filter((line) => { return line.match(/.*City\/State\/Zip.*/)})
   assert(addressLine, 'Docket Sheet does not contain a zip code');
 
-  const zipcode = addressLine.split('City/State/Zip:')[2].split('  ')[1].trim();
+  const zipline = addressLine.split('City/State/Zip:')[1]
+  const zipcode = zipline.split(' ')[3]
   
   const [total] = text.filter((line) => { return line.match(/^.*Grand Totals.*$/)})
-  const [assessment, payments, adjustments, nonmonetary, balance] = total.match(/\$(\d\.\d{2})/) as RegExpMatchArray
+  console.log('Total', total);
+  const [_, _1, assessment, _2, payments, adjustments, nonmonetary, balance] = total && total.split('|') || []
 
   acc.response.body = {
     zipcode, 
-    balance
+    balance: balance,
+    assessment: assessment,
+    payments: payments,
+    adjustments: adjustments,
+    nonmonetary: nonmonetary
   };
 
+  console.dir(acc.response.body, { depth: null });
   return acc;
 }
 
