@@ -36,9 +36,11 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
   await docketInput.fill(docketNum);
   await page.getByRole('button', { name: 'Search' }).nth(1).click();
   await page.waitForTimeout(2000);
-  
-  const link =  page.locator(`[href*="/Report/${type}?"]`);
-  
+
+  // Find the row with your docket number first
+  const docketRow = page.locator(`tr:has-text("${docketNum}")`);
+  const link = docketRow.locator(`[href*="/Report/${type}?"]`).first();
+
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     // Annoyingly opens in pdf reader mode in a new tab
