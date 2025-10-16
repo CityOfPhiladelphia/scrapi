@@ -41,6 +41,10 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
   const docketRow = page.locator(`tr:has-text("${docketNum}")`);
   const link = docketRow.locator(`[href*="/Report/${type}?"]`).first();
 
+  // Capture the actual URL before clicking
+  const reportUrl = await link.getAttribute('href');
+  const fullReportUrl = reportUrl ? `https://ujsportal.pacourts.us${reportUrl}` : null;
+
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     // Annoyingly opens in pdf reader mode in a new tab
@@ -51,6 +55,10 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
 
    await download.saveAs(`${USJS_PDF_PATH}/${type}.pdf`);
   // await browser.close();
+
+   // Store the URL in the accumulator for use in serialize
+   acc.data.scrapedUrls = acc.data.scrapedUrls || {};
+   acc.data.scrapedUrls[type] = fullReportUrl;
 
    return acc;
 };
