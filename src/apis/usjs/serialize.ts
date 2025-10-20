@@ -40,10 +40,7 @@ async function summary (acc: RestAccumulator): Promise<RestAccumulator> {
       person: person(text),
       cases: slices({ lines: text, reducer: docketIndex })
       .map(cases),
-      urls: {
-        summary: acc.data.scrapedUrls?.[FileType.Summary] || null,
-        docket: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
-      }
+      summaryUrl: acc.data.scrapedUrls?.[FileType.Summary] || null
     }
 
     console.dir(result, { depth: null });
@@ -295,7 +292,8 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     assessment: assessment,
     payments: payments,
     adjustments: adjustments,
-    nonmonetary: nonmonetary
+    nonmonetary: nonmonetary,
+    docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
   };
 
   console.dir(acc.response.body, { depth: null });

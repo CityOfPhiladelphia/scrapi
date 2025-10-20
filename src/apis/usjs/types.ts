@@ -83,9 +83,6 @@ export type SerializedSummary = {
         [Defendant.Aliases]: string[];
     };
     cases: CourtCase[];
-    urls?: {
-        summary?: string | null;
-        docket?: string | null;
-    };
+    summaryUrl?: string | null;
 }; 
 
