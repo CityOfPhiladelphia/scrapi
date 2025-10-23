@@ -54,6 +54,33 @@ interface FinancialResponse {
   docketUrl?: string;
 }
 
+function parseName(fullName: string): [string, string, string] {
+  if (!fullName) return ["", "", ""];
+
+  // Case 1: format like "Last, First M."
+  if (fullName.includes(",")) {
+    const [lastPart, rest] = fullName.split(",", 2).map(s => s.trim());
+    const parts = rest.split(" ").filter(part => Boolean(part));
+    const first = parts[0] || "";
+    const middle = (parts[1] || "").replace(/\./g, ""); // strip periods
+    return [first, middle, lastPart];
+  }
+
+  // Case 2: format like "First Middle Last" (no comma)
+  const parts = fullName.split(" ").filter(part => Boolean(part));
+  if (parts.length === 3) {
+    const [first, middle, last] = parts;
+    return [first, middle.replace(/\./g, ""), last];
+  } else if (parts.length === 2) {
+    const [first, last] = parts;
+    return [first, "", last];
+  } else if (parts.length === 1) {
+    return ["", "", parts[0]];
+  }
+
+  return ["", "", fullName];
+}
+
 async function main(workbook: ExcelScript.Workbook) {
   const apiSummaryUrl = "https://l8hw3ij8v7.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary";
   const apiDocketUrl = "https://l8hw3ij8v7.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/docket";
@@ -75,9 +102,11 @@ async function main(workbook: ExcelScript.Workbook) {
   urlsSheet.getRange("A:Z").clear();
 
   // Write headers
-  personSheet.getRange("A1:I1").setValues([[
-    "Docket Searched", "Name", "Address", "DOB", "Race", "Sex", "Eyes", "Hair", "Aliases"
+  personSheet.getRange("A1:K1").setValues([[
+    "Docket Searched", "First Name", "Middle", "Last Name", "Address",
+    "DOB", "Race", "Sex", "Eyes", "Hair", "Aliases"
   ]]);
+
 
   casesSheet.getRange("A1:J1").setValues([[
     "Docket No", "Status", "DC No", "OTN", "Arrest Date", "Disp Date", "Judge", "Defense Atty", "Num Charges", "Original Docket"
@@ -116,9 +145,11 @@ async function main(workbook: ExcelScript.Workbook) {
       // Person Info
       if (data.person) {
         const p = data.person;
-        personSheet.getRange(`A${personRow}:I${personRow}`).setValues([[
+        const [first, middle, last] = parseName(p.name || "");
+        personSheet.getRange(`A${personRow}:K${personRow}`).setValues([[
           docketNum,
-          p.name || "", p.address || "", p.dob || "",
+          first, middle, last,
+          p.address || "", p.dob || "",
           p.race || "", p.sex || "", p.eyes || "", p.hair || "",
           (p.aliases || []).join("; ")
         ]]);
@@ -206,7 +237,7 @@ async function main(workbook: ExcelScript.Workbook) {
   for (let i = 0; i < docketNums.length; i++) {
     const docketNum = docketNums[i][0];
     if (!docketNum) continue;
-    
+
     await processDocketNumber(String(docketNum));
   }
 
@@ -219,7 +250,8 @@ async function main(workbook: ExcelScript.Workbook) {
     sheet.getUsedRange().getFormat().autofitColumns();
   }
 
-  formatSheet(personSheet, "A1:I1");
+  // formatSheet(personSheet, "A1:I1");
+  formatSheet(personSheet, "A1:K1");
   formatSheet(casesSheet, "A1:J1");
   formatSheet(chargesSheet, "A1:I1");
   formatSheet(financialSheet, "A1:G1");
