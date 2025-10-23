@@ -93,6 +93,8 @@ async function main(workbook: ExcelScript.Workbook) {
   let chargesSheet = workbook.getWorksheet("Charges") || workbook.addWorksheet("Charges");
   let financialSheet = workbook.getWorksheet("Financial Info") || workbook.addWorksheet("Financial Info");
   let urlsSheet = workbook.getWorksheet("Links") || workbook.addWorksheet("Links");
+  let jsonSheet = workbook.getWorksheet("Raw JSON") || workbook.addWorksheet("Raw JSON");
+
 
   // Clear existing data
   personSheet.getRange("A:Z").clear();
@@ -100,13 +102,12 @@ async function main(workbook: ExcelScript.Workbook) {
   chargesSheet.getRange("A:Z").clear();
   financialSheet.getRange("A:Z").clear();
   urlsSheet.getRange("A:Z").clear();
+  jsonSheet.getRange("A:Z").clear();
 
   // Write headers
   personSheet.getRange("A1:K1").setValues([[
-    "Docket Searched", "First Name", "Middle", "Last Name", "Address",
-    "DOB", "Race", "Sex", "Eyes", "Hair", "Aliases"
+    "Docket Searched", "First Name", "Middle", "Last Name", "Address", "DOB", "Race", "Sex", "Eyes", "Hair", "Aliases"
   ]]);
-
 
   casesSheet.getRange("A1:J1").setValues([[
     "Docket No", "Status", "DC No", "OTN", "Arrest Date", "Disp Date", "Judge", "Defense Atty", "Num Charges", "Original Docket"
@@ -124,11 +125,16 @@ async function main(workbook: ExcelScript.Workbook) {
     "Docket No", "Court Summary URL", "Docket Sheet URL"
   ]]);
 
+  jsonSheet.getRange("A1:C1").setValues([[
+    "Docket No", "Summary JSON", "Docket JSON"
+  ]]);
+
   let personRow = 2;
   let caseRow = 2;
   let chargeRow = 2;
   let financeRow = 2;
   let urlRow = 2
+  let jsonRow = 2;
 
   // Process all docket numbers with error handling outside the loop
   async function processDocketNumber(docketNum: string): Promise<void> {
@@ -225,7 +231,7 @@ async function main(workbook: ExcelScript.Workbook) {
           urlRow++;
         }
       }
-
+      
       await new Promise(resolve => setTimeout(resolve, 150)); // throttle
 
     } catch (error: unknown) {
@@ -250,12 +256,39 @@ async function main(workbook: ExcelScript.Workbook) {
     sheet.getUsedRange().getFormat().autofitColumns();
   }
 
-  // formatSheet(personSheet, "A1:I1");
   formatSheet(personSheet, "A1:K1");
   formatSheet(casesSheet, "A1:J1");
   formatSheet(chargesSheet, "A1:I1");
   formatSheet(financialSheet, "A1:G1");
   formatSheet(urlsSheet, "A1:C1");
+
+  //format links
+  const urlRange = urlsSheet.getRange("B2:C2");
+  urlRange.getFormat().getFont().setSize(12);
+
+  // Make the text into real hyperlinks
+  const values = urlRange.getValues();
+  const summaryUrl = String(values[0][0]);
+  const docketUrl = String(values[0][1]);
+
+  if (summaryUrl && summaryUrl !== "") {
+    urlRange.getCell(0, 0).setHyperlink({
+      address: summaryUrl,
+      textToDisplay: summaryUrl
+    });
+  }
+
+  if (docketUrl && docketUrl !== "") {
+    urlRange.getCell(0, 1).setHyperlink({
+      address: docketUrl,
+      textToDisplay: docketUrl
+    });
+  }
+
+  // Apply your formatting
+  urlRange.getFormat().getFont().setSize(12);
+  urlRange.getFormat().getFont().setColor("Blue");
+  urlRange.getFormat().getFont().setUnderline(ExcelScript.RangeUnderlineStyle.single);
 
   console.log("✅ Done!");
 }
