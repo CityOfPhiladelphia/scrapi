@@ -254,11 +254,8 @@ async function main(workbook: ExcelScript.Workbook) {
   formatSheet(financialSheet, "A1:G1");
   formatSheet(urlsSheet, "A1:C1");
 
-  //format links
+  // Format original Summary/Docket hyperlinks in B2 & C2
   const urlRange = urlsSheet.getRange("B2:C2");
-  urlRange.getFormat().getFont().setSize(12);
-
-  // Make the text into real hyperlinks
   const values = urlRange.getValues();
   const summaryUrl = String(values[0][0]);
   const docketUrl = String(values[0][1]);
@@ -266,21 +263,49 @@ async function main(workbook: ExcelScript.Workbook) {
   if (summaryUrl && summaryUrl !== "") {
     urlRange.getCell(0, 0).setHyperlink({
       address: summaryUrl,
-      textToDisplay: summaryUrl
+      textToDisplay: "Summary"
     });
   }
 
   if (docketUrl && docketUrl !== "") {
     urlRange.getCell(0, 1).setHyperlink({
       address: docketUrl,
-      textToDisplay: docketUrl
+      textToDisplay: "Docket"
     });
   }
 
-  // url formatting
-  urlRange.getFormat().getFont().setSize(12);
+  urlRange.getFormat().getFont().setSize(16);
   urlRange.getFormat().getFont().setColor("Blue");
   urlRange.getFormat().getFont().setUnderline(ExcelScript.RangeUnderlineStyle.single);
+
+  // Add raw JSON hyperlinks to B3 and C3
+  const firstDocketNum = String(docketNums[0][0]); // Get first docket number for raw JSON links
+
+  if (firstDocketNum) {
+    // Create raw JSON API URLs
+    const rawSummaryUrl = `${apiSummaryUrl}?docketNum=${encodeURIComponent(firstDocketNum)}`;
+    const rawDocketUrl = `${apiDocketUrl}?docketNum=${encodeURIComponent(firstDocketNum)}`;
+
+    // Set hyperlinks in B3 and C3
+    const summaryJsonCell = urlsSheet.getRange("B3");
+    const docketJsonCell = urlsSheet.getRange("C3");
+
+    summaryJsonCell.setHyperlink({
+      address: rawSummaryUrl,
+      textToDisplay: "View Raw JSON"
+    });
+
+    docketJsonCell.setHyperlink({
+      address: rawDocketUrl,
+      textToDisplay: "View Raw JSON"
+    });
+
+    // Format the raw JSON links
+    const rawJsonRange = urlsSheet.getRange("B3:C3");
+    rawJsonRange.getFormat().getFont().setSize(16);
+    rawJsonRange.getFormat().getFont().setColor("Blue");
+    rawJsonRange.getFormat().getFont().setUnderline(ExcelScript.RangeUnderlineStyle.single);
+  }
 
   console.log("✅ Done!");
 }
