@@ -93,8 +93,6 @@ async function main(workbook: ExcelScript.Workbook) {
   let chargesSheet = workbook.getWorksheet("Charges") || workbook.addWorksheet("Charges");
   let financialSheet = workbook.getWorksheet("Financial Info") || workbook.addWorksheet("Financial Info");
   let urlsSheet = workbook.getWorksheet("Links") || workbook.addWorksheet("Links");
-  let jsonSheet = workbook.getWorksheet("Raw JSON") || workbook.addWorksheet("Raw JSON");
-
 
   // Clear existing data
   personSheet.getRange("A:Z").clear();
@@ -102,7 +100,6 @@ async function main(workbook: ExcelScript.Workbook) {
   chargesSheet.getRange("A:Z").clear();
   financialSheet.getRange("A:Z").clear();
   urlsSheet.getRange("A:Z").clear();
-  jsonSheet.getRange("A:Z").clear();
 
   // Write headers
   personSheet.getRange("A1:K1").setValues([[
@@ -125,16 +122,11 @@ async function main(workbook: ExcelScript.Workbook) {
     "Docket No", "Court Summary URL", "Docket Sheet URL"
   ]]);
 
-  jsonSheet.getRange("A1:C1").setValues([[
-    "Docket No", "Summary JSON", "Docket JSON"
-  ]]);
-
   let personRow = 2;
   let caseRow = 2;
   let chargeRow = 2;
   let financeRow = 2;
   let urlRow = 2
-  let jsonRow = 2;
 
   // Process all docket numbers with error handling outside the loop
   async function processDocketNumber(docketNum: string): Promise<void> {
@@ -231,7 +223,7 @@ async function main(workbook: ExcelScript.Workbook) {
           urlRow++;
         }
       }
-      
+
       await new Promise(resolve => setTimeout(resolve, 150)); // throttle
 
     } catch (error: unknown) {
@@ -285,7 +277,7 @@ async function main(workbook: ExcelScript.Workbook) {
     });
   }
 
-  // Apply your formatting
+  // url formatting
   urlRange.getFormat().getFont().setSize(12);
   urlRange.getFormat().getFont().setColor("Blue");
   urlRange.getFormat().getFont().setUnderline(ExcelScript.RangeUnderlineStyle.single);
