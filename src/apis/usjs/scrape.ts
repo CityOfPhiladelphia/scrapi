@@ -29,8 +29,30 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
 
   const page = await browser.newPage();
   await page.goto('https://ujsportal.pacourts.us/CaseSearch');
-  const searchControl = page.getByTitle('Search By', )
-  await searchControl.selectOption('Docket Number');
+  
+  // Retry logic for search control with timeout handling
+  let searchControlRetries = 0;
+  const maxRetries = 3;
+  
+  while (searchControlRetries < maxRetries) {
+    try {
+      const searchControl = page.getByTitle('Search By', );
+      await searchControl.selectOption('Docket Number');
+      break; // Success, exit retry loop
+    } catch (error) {
+      searchControlRetries++;
+      console.log(`Search control attempt ${searchControlRetries} failed:`, error);
+      
+      if (searchControlRetries >= maxRetries) {
+        console.error(`Search control failed after ${maxRetries} attempts`);
+        throw error; // Re-throw the error after max retries
+      }
+      
+      // Wait before retry
+      await page.waitForTimeout(2000);
+      console.log(`Retrying search control (attempt ${searchControlRetries + 1}/${maxRetries})...`);
+    }
+  }
   
   const docketInput = page.getByTitle('Docket Number');
   await docketInput.fill(docketNum);
