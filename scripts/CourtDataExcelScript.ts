@@ -29,6 +29,9 @@ interface Case {
 
 interface Person {
   name?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
   address?: string;
   dob?: string;
   eyes?: string;
@@ -54,32 +57,7 @@ interface FinancialResponse {
   docketUrl?: string;
 }
 
-function parseName(fullName: string): [string, string, string] {
-  if (!fullName) return ["", "", ""];
 
-  // Case 1: format like "Last, First M."
-  if (fullName.includes(",")) {
-    const [lastPart, rest] = fullName.split(",", 2).map(s => s.trim());
-    const parts = rest.split(" ").filter(part => Boolean(part));
-    const first = parts[0] || "";
-    const middle = (parts[1] || "").replace(/\./g, ""); // strip periods
-    return [first, middle, lastPart];
-  }
-
-  // Case 2: format like "First Middle Last" (no comma)
-  const parts = fullName.split(" ").filter(part => Boolean(part));
-  if (parts.length === 3) {
-    const [first, middle, last] = parts;
-    return [first, middle.replace(/\./g, ""), last];
-  } else if (parts.length === 2) {
-    const [first, last] = parts;
-    return [first, "", last];
-  } else if (parts.length === 1) {
-    return ["", "", parts[0]];
-  }
-
-  return ["", "", fullName];
-}
 
 async function main(workbook: ExcelScript.Workbook) {
   const apiSummaryUrl = "https://l8hw3ij8v7.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary";
@@ -143,10 +121,9 @@ async function main(workbook: ExcelScript.Workbook) {
       // Person Info
       if (data.person) {
         const p = data.person;
-        const [first, middle, last] = parseName(p.name || "");
         personSheet.getRange(`A${personRow}:K${personRow}`).setValues([[
           docketNum,
-          first, middle, last,
+          p.firstName || "", p.middleName || "", p.lastName || "",
           p.address || "", p.dob || "",
           p.race || "", p.sex || "", p.eyes || "", p.hair || "",
           (p.aliases || []).join("; ")
