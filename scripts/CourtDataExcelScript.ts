@@ -60,8 +60,8 @@ interface FinancialResponse {
 
 
 async function main(workbook: ExcelScript.Workbook) {
-  const apiSummaryUrl = "https://l8hw3ij8v7.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary";
-  const apiDocketUrl = "https://l8hw3ij8v7.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/docket";
+  const apiSummaryUrl = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary";
+  const apiDocketUrl = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/docket";
 
   const inputSheet = workbook.getActiveWorksheet();
   const docketNums = inputSheet.getRange("A2:A100").getValues();
@@ -106,6 +106,10 @@ async function main(workbook: ExcelScript.Workbook) {
   let financeRow = 2;
   let urlRow = 2
 
+  // Store JSON data for the first docket number
+  let firstDocketSummaryJson = '';
+  let firstDocketFinanceJson = '';
+
   // Process all docket numbers with error handling outside the loop
   async function processDocketNumber(docketNum: string): Promise<void> {
     try {
@@ -117,6 +121,12 @@ async function main(workbook: ExcelScript.Workbook) {
       if (!response.ok) return;
 
       const data: ApiResponse = await response.json();
+
+      // Store JSON for first docket number
+      const isFirstDocket = String(docketNums[0][0]) === docketNum;
+      if (isFirstDocket) {
+        firstDocketSummaryJson = JSON.stringify(data, null, 2);
+      }
 
       // Person Info
       if (data.person) {
@@ -175,6 +185,12 @@ async function main(workbook: ExcelScript.Workbook) {
 
       if (financeRes.ok) {
         const finance: FinancialResponse = await financeRes.json();
+        
+        // Store financial JSON for first docket number
+        if (isFirstDocket) {
+          firstDocketFinanceJson = JSON.stringify(finance, null, 2);
+        }
+        
         financialSheet.getRange(`A${financeRow}:G${financeRow}`).setValues([[
           docketNum,
           finance.zipcode || "",
@@ -282,6 +298,34 @@ async function main(workbook: ExcelScript.Workbook) {
     rawJsonRange.getFormat().getFont().setSize(16);
     rawJsonRange.getFormat().getFont().setColor("Blue");
     rawJsonRange.getFormat().getFont().setUnderline(ExcelScript.RangeUnderlineStyle.single);
+
+    // Add full JSON strings to B4 and C4
+    const jsonDataRange = urlsSheet.getRange("B4:C4");
+    jsonDataRange.setValues([[
+      firstDocketSummaryJson,
+      firstDocketFinanceJson
+    ]]);
+    
+    // Format the JSON data cells
+    jsonDataRange.getFormat().setWrapText(true);
+    jsonDataRange.getFormat().getFont().setSize(10);
+    jsonDataRange.getFormat().getFont().setName("Courier New"); // Monospace font for JSON
+    jsonDataRange.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.top);
+    
+    // Triple the width of column B (Summary column) and make column C standard width
+    const summaryColumn = urlsSheet.getRange("B:B");
+    const docketColumn = urlsSheet.getRange("C:C");
+    
+    // Set specific column widths - triple width for summary column
+    summaryColumn.getFormat().setColumnWidth(300); // Triple width for summary
+    docketColumn.getFormat().setColumnWidth(100);   // Standard width for docket
+    
+    // Make B4 cell much taller to show full JSON
+    const summaryJsonDataCell = urlsSheet.getRange("B4");
+    summaryJsonDataCell.getFormat().setRowHeight(400); // Increased height for JSON display
+    
+    // Auto-fit row height for other rows
+    urlsSheet.getUsedRange().getFormat().autofitRows();
   }
 
   console.log("✅ Done!");
