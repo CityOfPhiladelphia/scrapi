@@ -16,6 +16,34 @@ import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
  *    Parse above in pipeline
  */
 
+/** Name parsing utility function */
+function parseName(fullName: string): [string, string, string] {
+  if (!fullName) return ["", "", ""];
+
+  // Case 1: format like "Last, First M."
+  if (fullName.includes(",")) {
+    const [lastPart, rest] = fullName.split(",", 2).map(s => s.trim());
+    const parts = rest.split(" ").filter(part => Boolean(part));
+    const first = parts[0] || "";
+    const middle = (parts[1] || "").replace(/\./g, ""); // strip periods
+    return [first, middle, lastPart];
+  }
+
+  // Case 2: format like "First Middle Last" (no comma)
+  const parts = fullName.split(" ").filter(part => Boolean(part));
+  if (parts.length === 3) {
+    const [first, middle, last] = parts;
+    return [first, middle.replace(/\./g, ""), last];
+  } else if (parts.length === 2) {
+    const [first, last] = parts;
+    return [first, "", last];
+  } else if (parts.length === 1) {
+    return ["", "", parts[0]];
+  }
+
+  return ["", "", fullName];
+}
+
 
 /** Driver Function */
 async function summary (acc: RestAccumulator): Promise<RestAccumulator> {
@@ -67,6 +95,21 @@ const matchers = (lines: string[]) => {
     person: {
       // Possibly break the regex out to their own mapping for easier test cases
       [Defendant.Name]: () => lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '',
+      [Defendant.FirstName]: () => {
+        const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
+        const [first] = parseName(fullName);
+        return first;
+      },
+      [Defendant.MiddleName]: () => {
+        const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
+        const [, middle] = parseName(fullName);
+        return middle;
+      },
+      [Defendant.LastName]: () => {
+        const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
+        const [, , last] = parseName(fullName);
+        return last;
+      },
       [Defendant.Address]: () => lines[3].split('Eyes:')[0].replaceAll('|', '').trim() || '',
       [Defendant.DOB]: () => keyValueMatch({ line: lines[2], regex: /DOB:\s+(\d{2}\/\d{2}\/\d{4})/ }),
       [Defendant.Sex]: () => keyValueMatch({ line: lines[2], regex: /Sex:\s+(\w+)/ }),
@@ -182,6 +225,9 @@ const person = (lines: string[]) => {
       return acc;
     }, {
       [Defendant.Name]: '',
+      [Defendant.FirstName]: '',
+      [Defendant.MiddleName]: '',
+      [Defendant.LastName]: '',
       [Defendant.Address]: '',
       [Defendant.DOB]: '',
       [Defendant.Eyes]: '',

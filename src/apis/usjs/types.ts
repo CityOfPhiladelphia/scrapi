@@ -62,6 +62,9 @@ export type CourtCase = {
 
 export enum Defendant {
     Name = 'name',
+    FirstName = 'firstName',
+    MiddleName = 'middleName', 
+    LastName = 'lastName',
     Address = 'address',
     DOB = 'dob',
     Race = 'race',
@@ -74,6 +77,9 @@ export enum Defendant {
 export type SerializedSummary = {
     person: {
         [Defendant.Name]: string;
+        [Defendant.FirstName]: string;
+        [Defendant.MiddleName]: string;
+        [Defendant.LastName]: string;
         [Defendant.Address]: string;
         [Defendant.DOB]: string;
         [Defendant.Race]: string;
