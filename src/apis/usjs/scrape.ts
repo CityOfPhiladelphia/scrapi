@@ -28,8 +28,35 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
   });
 
   const page = await browser.newPage();
-  await page.goto('https://ujsportal.pacourts.us/CaseSearch');
-  const searchControl = page.getByTitle('Search By', )
+
+   // Set longer timeouts for slower court systems
+  page.setDefaultTimeout(60000); // 60 seconds
+  page.setDefaultNavigationTimeout(60000); // 60 seconds
+
+  await page.setExtraHTTPHeaders({
+    'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.${Math.floor(Math.random()*100)} Safari/537.36`
+  });
+  
+  // Anti-detection: Random delay
+  await page.waitForTimeout(500 + Math.random() * 1000);
+
+  // Navigate to court search page
+  await page.goto('https://ujsportal.pacourts.us/CaseSearch', { 
+    waitUntil: 'networkidle',
+    timeout: 60000 
+  });
+
+  // Try to find search control with fallback
+  let searchControl;
+  try {
+    searchControl = page.getByTitle('Search By');
+    await searchControl.waitFor({ timeout: 60000 });
+  } catch (error) {
+    console.log('Trying fallback selector for SearchBy...');
+    searchControl = page.locator('#SearchBy');
+    await searchControl.waitFor({ timeout: 60000 });
+  }
+
   await searchControl.selectOption('Docket Number');
   
   const docketInput = page.getByTitle('Docket Number');
