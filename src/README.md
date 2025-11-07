@@ -3,7 +3,7 @@
 ### Getting Started
 
 1. **Download the Script**
-   - Navigate to [`scripts/CaseReportsData.ts`](../scripts/CaseReportsData.ts)
+   - Navigate to [`scripts/CourtDataExcelScript.ts`](../scripts/CourtDataExcelScript.ts)
    - Copy the entire file content
 
 2. **Set Up Excel Online**
@@ -11,7 +11,7 @@
    - Create a new blank workbook
    - In column A, starting at A2, enter the docket numbers you want to search
    - Go to **Automate** → **New Script**
-   - Delete the default code and paste the `CaseReportsData.ts` content
+   - Delete the default code and paste the `CourtDataExcelScript.ts` content
    - Save the script with a name like "Court Data Scraper"
 
 3. **Add a Button (Optional)**

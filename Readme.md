@@ -31,3 +31,4 @@ Designed for serverless deployment, with handlers compatible with AWS API Gatewa
 ### Deployment:
 * [CDK Documentation](./cdk/README.md)
 * [Adding an API](./src/apis/Readme.md)
+* [Using the Excel Office Script](./src/README.md)
