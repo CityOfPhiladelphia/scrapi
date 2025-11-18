@@ -82,12 +82,6 @@ The script connects to these live endpoints:
 
 **Common Issues:**
 - **"Cannot find namespace 'ExcelScript'"**: This is normal - ignore these errors when copying code
-- **Script runs but no data**: Check that docket numbers are in the correct format (e.g., "CP-51-CR-0001234-2023")
-- **Timeout errors**: UPDATE
-
-**Performance Tips:**
-- Ensure stable internet connection for court system access
-- Run during off-peak hours for faster court system response
 
 ### Data Sources
 
