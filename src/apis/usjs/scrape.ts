@@ -33,25 +33,26 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
   page.setDefaultTimeout(60000); // 60 seconds
   page.setDefaultNavigationTimeout(60000); // 60 seconds
 
+  //Still randomizing chrome versions; Other combos cause more timeouts
   const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.1 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0',
-    // Add more user agents as needed
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.183 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.207 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.112 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6210.92 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.71 Safari/537.36',
   ];
   const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
   await page.setExtraHTTPHeaders({
     'User-Agent': randomUserAgent
   });
-  
+ 
   // Anti-detection: Random delay
   await page.waitForTimeout(500 + Math.random() * 1000);
 
   // Navigate to court search page
   await page.goto('https://ujsportal.pacourts.us/CaseSearch', { 
-    waitUntil: 'networkidle',
-    timeout: 60000 
+    waitUntil: 'networkidle'
   });
 
   // Try to find search control with fallback
