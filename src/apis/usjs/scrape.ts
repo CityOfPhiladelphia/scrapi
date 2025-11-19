@@ -47,7 +47,7 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
     'User-Agent': randomUserAgent
   });
  
-  // Anti-detection: Random delay
+  // Anti-detection: Random delay from 0.5s (min) to 1.5s (max)
   await page.waitForTimeout(500 + Math.random() * 1000);
 
   // Navigate to court search page

@@ -20,30 +20,38 @@ import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 function parseName(fullName: string): [string, string, string] {
   if (!fullName) return ["", "", ""];
 
-  // Case 1: format like "Last, First M."
-  if (fullName.includes(",")) {
-    const [lastPart, rest] = fullName.split(",", 2).map(s => s.trim());
-    const parts = rest.split(" ").filter(part => Boolean(part));
-    const first = parts[0] || "";
-    const middle = (parts[1] || "").replace(/\./g, ""); // strip periods
-    return [first, middle, lastPart];
-  }
+  let parts: string[] = [];
+  let first = "", middle = "", last = "";
 
-  // Case 2: format like "First Middle Last" (no comma)
-  const parts = fullName.split(" ").filter(part => Boolean(part));
-  if (parts.length === 3) {
-    const [first, middle, last] = parts;
-    return [first, middle.replace(/\./g, ""), last];
-  } else if (parts.length === 2) {
-    const [first, last] = parts;
-    return [first, "", last];
-  } else if (parts.length === 1) {
-    return ["", "", parts[0]];
+  switch (true) {
+    // Case 1: format like "Last, First M."
+    case fullName.includes(","):
+      {
+        const [lastPart, rest] = fullName.split(",", 2).map(s => s.trim());
+        parts = rest.split(" ").filter(Boolean);
+        first = parts[0] || "";
+        middle = (parts[1] || "").replace(/\./g, "");
+        last = lastPart;
+        return [first, middle, last];
+      }
+    // Case 2: format like "First Middle Last" (no comma)
+    default:
+      parts = fullName.split(" ").filter(Boolean);
+      switch (parts.length) {
+        case 3:
+          [first, middle, last] = parts;
+          middle = middle.replace(/\./g, "");
+          return [first, middle, last];
+        case 2:
+          [first, last] = parts;
+          return [first, "", last];
+        case 1:
+          return ["", "", parts[0]];
+        default:
+          return ["", "", fullName];
+      }
   }
-
-  return ["", "", fullName];
 }
-
 
 /** Driver Function */
 async function summary (acc: RestAccumulator): Promise<RestAccumulator> {
@@ -62,8 +70,8 @@ async function summary (acc: RestAccumulator): Promise<RestAccumulator> {
         return acc;
     }, [] as string[][])
     .flat()
-    
 
+    
     const result = {
       person: person(text),
       cases: slices({ lines: text, reducer: docketIndex })
