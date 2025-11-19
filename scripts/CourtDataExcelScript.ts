@@ -57,7 +57,21 @@ interface FinancialResponse {
   docketUrl?: string;
 }
 
-
+// Validation function for docket numbers
+function validateDocketNumber(docketNum: string): { isValid: boolean; errorMessage?: string } {
+  // Pattern: [A-Z]{2}-\d{2}-CR-\d{7}-\d{4}
+  // Examples: MC-51-CR-0034177-2014, CP-02-CR-1234567-2020
+  const docketPattern = /^[A-Z]{2}-\d{2}-CR-\d{7}-\d{4}$/;
+  
+  if (!docketPattern.test(docketNum)) {
+    return {
+      isValid: false,
+      errorMessage: `Invalid docket format: '${docketNum}'. Expected format: XX-##-CR-#######-#### (e.g., MC-51-CR-0034177-2014)`
+    };
+  }
+  
+  return { isValid: true };
+}
 
 async function main(workbook: ExcelScript.Workbook) {
   const apiSummaryUrl = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary";
@@ -138,6 +152,8 @@ async function main(workbook: ExcelScript.Workbook) {
           p.race || "", p.sex || "", p.eyes || "", p.hair || "",
           (p.aliases || []).join("; ")
         ]]);
+        // Set DOB column (F) to mm/dd/yyyy format for this row
+        personSheet.getRange(`F${personRow}`).setNumberFormatLocal("mm/dd/yyyy");
         personRow++;
       }
 
@@ -224,12 +240,27 @@ async function main(workbook: ExcelScript.Workbook) {
     }
   }
 
-  // Process all docket numbers
+  // Process all docket numbers with validation
   for (let i = 0; i < docketNums.length; i++) {
     const docketNum = docketNums[i][0];
     if (!docketNum) continue;
 
-    await processDocketNumber(String(docketNum));
+    const docketString = String(docketNum);
+    const validation = validateDocketNumber(docketString);
+    
+    if (!validation.isValid) {
+      console.log(`❌ Validation Error: ${validation.errorMessage}`);
+      // Add error to person sheet for visibility
+      personSheet.getRange(`A${personRow}:K${personRow}`).setValues([[
+        docketString,
+        `ERROR: ${validation.errorMessage}`,
+        "", "", "", "", "", "", "", "", ""
+      ]]);
+      personRow++;
+      continue; // Skip processing this docket number
+    }
+
+    await processDocketNumber(docketString);
   }
 
   function formatSheet(sheet: ExcelScript.Worksheet, headerRange: string) {
