@@ -97,27 +97,23 @@ const keyValueMatch = ({ line, regex }: KVMatch): string => {
   return '';
 };
 
+// Helper function to extract and parse defendant name from lines
+const extractDefendantName = (lines: string[]) => {
+  const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
+  const [first, middle, last] = parseName(fullName);
+  return { fullName, first, middle, last };
+};
 
 const matchers = (lines: string[]) => {
+   const nameInfo = extractDefendantName(lines); 
+  
   return {
     person: {
       // Possibly break the regex out to their own mapping for easier test cases
-      [Defendant.Name]: () => lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '',
-      [Defendant.FirstName]: () => {
-        const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
-        const [first] = parseName(fullName);
-        return first;
-      },
-      [Defendant.MiddleName]: () => {
-        const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
-        const [, middle] = parseName(fullName);
-        return middle;
-      },
-      [Defendant.LastName]: () => {
-        const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
-        const [, , last] = parseName(fullName);
-        return last;
-      },
+      [Defendant.Name]: () => nameInfo.fullName,
+      [Defendant.FirstName]: () => nameInfo.first,
+      [Defendant.MiddleName]: () => nameInfo.middle,
+      [Defendant.LastName]: () => nameInfo.last,
       [Defendant.Address]: () => lines[3].split('Eyes:')[0].replaceAll('|', '').trim() || '',
       [Defendant.DOB]: () => keyValueMatch({ line: lines[2], regex: /DOB:\s+(\d{2}\/\d{2}\/\d{4})/ }),
       [Defendant.Sex]: () => keyValueMatch({ line: lines[2], regex: /Sex:\s+(\w+)/ }),
