@@ -152,6 +152,8 @@ async function main(workbook: ExcelScript.Workbook) {
     sheet.getCell(row - 1, 14).setValue(zip);
     // Q (16): DOB
     sheet.getCell(row - 1, 16).setValue(data.person.dob || "");
+    // Set DOB cell to mm/dd/yyyy format
+    sheet.getCell(row - 1, 16).setNumberFormatLocal("mm/dd/yyyy");
     // R (17): Race
     sheet.getCell(row - 1, 17).setValue(data.person.race || "");
     // S (18): Sex
