@@ -6,8 +6,8 @@
    - Navigate to [`scripts/CourtDataExcelScript.ts`](../scripts/CourtDataExcelScript.ts)
    - Copy the entire file content
 
-2. **Set Up Excel Online**
-   - Open Excel Online (office.com)
+2. **Create an Excel Workbook**
+   - Open Excel Desktop App or Excel Online (office.com) 
    - Create a new blank workbook
    - In column A, starting at A2, enter the docket numbers you want to search
    - Go to **Automate** → **New Script**
@@ -35,7 +35,7 @@ The script creates **5 worksheets** with the following data:
 | **Cases** | Case-level information | Docket No, Status, OTN, Arrest/Disposition dates, Judge, Attorney |
 | **Charges** | Individual charges and sentences | Statute, Grade, Description, Disposition, Sentence details |
 | **Financial Info** | Court costs and payments | Zip Code, Balance, Assessments, Payments, Adjustments |
-| **Links** | Document access | Court Summary URLs, Docket Sheet URLs, Raw JSON API links |
+| **Links** | Document access | Court Summary URLs, Docket Sheet URLs, Raw JSON Data/Links |
 
 #### Person Info Sheet
 - **Columns**: Docket Searched, First Name, Middle, Last Name, Address, DOB, Race, Sex, Eyes, Hair, Aliases
@@ -64,24 +64,24 @@ The script creates **5 worksheets** with the following data:
 - **Purpose**: Direct access to source court documents and raw API data
 
 ### Features
-
-✅ **Automatic Error Handling**: Continues processing if individual docket lookups fail  
-✅ **Rate Limiting**: Built-in 150ms delay between requests to avoid overwhelming the court system  
-✅ **Professional Formatting**: Auto-sized columns, colored headers, blue hyperlinks  
-✅ **Data Validation**: Handles missing or malformed court data gracefully  
-✅ **Performance Optimized**: Moved error handling outside loops for better Excel performance  
+- **Automatic Error Handling**: Continues processing if individual docket lookups fail  
+- **Rate Limiting**: Built-in 150ms delay between requests to avoid overwhelming the court system  
+- **Professional Formatting**: Auto-sized columns, colored headers, blue hyperlinks  
+- **Data Validation**: Handles missing or malformed court data gracefully  
+- **Performance Optimized**: Moved error handling outside loops for better Excel performance  
 
 ### API Endpoints
 
 The script connects to these live endpoints:
 
-- **Summary API**: `https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary`
-- **Docket API**: `https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/docket`
+- **Summary API**: ``
+- **Docket API**: ``
 
 ### Troubleshooting
 
 **Common Issues:**
 - **"Cannot find namespace 'ExcelScript'"**: This is normal - ignore these errors when copying code
+- **"Duplicate function implementation "**: This is normal - ignore these errors when copying code
 
 ### Data Sources
 
