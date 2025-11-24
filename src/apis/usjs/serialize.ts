@@ -18,38 +18,42 @@ import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 
 /** Name parsing utility function */
 function parseName(fullName: string): [string, string, string] {
-  if (!fullName) return ["", "", ""];
 
-  let parts: string[] = [];
-  let first = "", middle = "", last = "";
+  //empty or null
+  // if (!fullName || !fullName.trim()) return ["", "", ""];
+   if (!fullName || !fullName.trim()) {
+    console.warn("parseName: Empty or null name provided");
+    return ["", "", ""];
+  }
 
-  switch (true) {
-    // Case 1: format like "Last, First M."
-    case fullName.includes(","):
-      {
-        const [lastPart, rest] = fullName.split(",", 2).map(s => s.trim());
-        parts = rest.split(" ").filter(Boolean);
-        first = parts[0] || "";
-        middle = (parts[1] || "").replace(/\./g, "");
-        last = lastPart;
-        return [first, middle, last];
-      }
-    // Case 2: format like "First Middle Last" (no comma)
-    default:
-      parts = fullName.split(" ").filter(Boolean);
-      switch (parts.length) {
-        case 3:
-          [first, middle, last] = parts;
-          middle = middle.replace(/\./g, "");
-          return [first, middle, last];
-        case 2:
-          [first, last] = parts;
-          return [first, "", last];
-        case 1:
-          return ["", "", parts[0]];
-        default:
-          return ["", "", fullName];
-      }
+  // Case 1: format like "Last, First M."
+  if (fullName.includes(",")) {
+    const [lastPart, rest] = fullName.split(",", 2).map(s => s.trim());
+    const parts = rest.split(" ").filter(part => Boolean(part));
+    const first = parts[0] || "";
+    const middle = (parts[1] || "").replace(/\./g, ""); // strip periods
+    return [first, middle, lastPart];
+  }
+
+ // Case 2: Format like "First Middle Last"
+  const parts = fullName.split(" ").filter(Boolean);
+  switch(parts.length){ 
+    case 1: {
+        const [last] = parts;
+        return ["", "", last];
+    }
+    case 2: {
+        const [first, last] = parts; 
+        return [first, "", last];
+    }
+    case 3: {
+        const [first, middle, last] = parts; 
+        return [first, middle.replace(/\./g, ""), last];
+    }
+    default: { 
+        //unrecognized format: preserve original
+        return ["", "", fullName];
+    }
   }
 }
 
