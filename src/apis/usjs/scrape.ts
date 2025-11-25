@@ -68,49 +68,19 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
     }
   }
 
-  // Try to find search control with multiple fallback strategies
-  let searchControl;
-  const searchSelectors = [
-    () => page.getByTitle('Search By'),
-    () => page.locator('#SearchBy'),
-    () => page.locator('select[name="SearchBy"]'),
-    () => page.locator('.search-by'),
-    () => page.locator('select').first()
-  ];
-
-  for (let i = 0; i < searchSelectors.length; i++) {
-    try {
-      console.log(`Trying search selector strategy ${i + 1}...`);
-      searchControl = searchSelectors[i]();
-      await searchControl.waitFor({ timeout: 20000 }); // Shorter individual timeouts
-      console.log(`Search control found using strategy ${i + 1}`);
-      break;
-    } catch (error) {
-      console.log(`Search selector strategy ${i + 1} failed:`, error instanceof Error ? error.message : String(error));
-      if (i === searchSelectors.length - 1) {
-        // Last attempt failed, try refreshing the page once
-        console.log('All search strategies failed, refreshing page...');
-        await page.reload({ waitUntil: 'networkidle' });
-        await page.waitForTimeout(3000);
-        
-        // One final attempt with the most basic selector
-        try {
-          searchControl = page.locator('#SearchBy');
-          await searchControl.waitFor({ timeout: 30000 });
-          console.log('Search control found after page refresh');
-        } catch (finalError) {
-          throw new Error(`Could not find search control after all attempts: ${finalError instanceof Error ? finalError.message : String(finalError)}`);
-        }
-      }
-    }
+  // Find and wait for search control
+  try {
+    console.log(`🔍 Looking for search control using getByTitle('Search By')`);
+    const searchControl = page.getByTitle('Search By');
+    await searchControl.waitFor({ timeout: 30000 });
+    console.log(`Search control found using getByTitle('Search By')`);
+    
+    await searchControl.selectOption('Docket Number');
+  } catch (error) {
+    console.log(`Failed to find search control:`, error instanceof Error ? error.message : String(error));
+    throw new Error(`Could not find search control: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  if (!searchControl) {
-    throw new Error('Search control was not found after all attempts');
-  }
-
-  await searchControl.selectOption('Docket Number');
-  
   const docketInput = page.getByTitle('Docket Number');
   await docketInput.fill(docketNum);
   await page.getByRole('button', { name: 'Search' }).nth(1).click();
