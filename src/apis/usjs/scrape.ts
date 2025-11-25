@@ -72,7 +72,7 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
   try {
     console.log(`🔍 Looking for search control using getByTitle('Search By')`);
     const searchControl = page.getByTitle('Search By');
-    await searchControl.waitFor({ timeout: 30000 });
+    await searchControl.waitFor({ timeout: 45000 });
     console.log(`Search control found using getByTitle('Search By')`);
     
     await searchControl.selectOption('Docket Number');
