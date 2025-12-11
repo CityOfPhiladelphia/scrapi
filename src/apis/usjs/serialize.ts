@@ -340,6 +340,16 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   console.log('Total', total);
   const [_, _1, assessment, _2, payments, adjustments, nonmonetary, balance] = total && total.split('|') || []
 
+  // Extract case status using the same pattern as address
+  const [caseStatusLine] = text.filter((line) => { return line.match(/.*Case Status.*/)})
+  assert(caseStatusLine, 'Docket Sheet does not contain a status');
+
+  const statusLine = caseStatusLine.split('Case Status:')[1]
+  const casestatus = statusLine
+  .replace(/\|/g, " ")      // turn pipes into spaces
+  .trim()                   // remove leading/trailing junk
+  .split(/\s+/)[0];   
+
   acc.response.body = {
     zipcode, 
     balance: balance,
@@ -347,6 +357,7 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     payments: payments,
     adjustments: adjustments,
     nonmonetary: nonmonetary,
+    casestatus,
     docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
   };
 

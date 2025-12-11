@@ -32,6 +32,7 @@ interface Charge {
 interface Case {
   docketNo?: string;
   procStatus?: string;
+  caseStatus?: string;
   dcNo?: string;
   otn?: string;
   arrestDt?: string;
@@ -65,6 +66,7 @@ interface FinancialResponse {
   payments?: string;
   adjustments?: string;
   nonmonetary?: string;
+  casestatus?: string;
   docketUrl?: string;
 }
 
@@ -192,10 +194,28 @@ async function processRow(sheet: ExcelScript.Worksheet, row: number, apiSummaryU
   sheet.getCell(row - 1, 17).setValue(data.person.race || "");
   // S (18): Sex
   sheet.getCell(row - 1, 18).setValue(data.person.sex || "");
+  // U (20): Case Status - get from docket data
+  let caseStatus = "";
+  if (finance && finance.casestatus) {
+    caseStatus = finance.casestatus;
+  }
+  sheet.getCell(row - 1, 20).setValue(caseStatus);
+  // W (22): Charges - collect all charge descriptions
+  let chargeDescriptions: string[] = [];
+  if (data.cases && data.cases.length > 0) {
+    for (const caseData of data.cases) {
+      if (caseData.charges && caseData.charges.length > 0) {
+        for (const charge of caseData.charges) {
+          if (charge.description) {
+            chargeDescriptions.push(charge.description);
+          }
+        }
+      }
+    }
+  }
+  sheet.getCell(row - 1, 22).setValue(chargeDescriptions.join(", "));
   // AX (49): Case Balance
   if (finance && finance.balance) {
     sheet.getCell(row - 1, 49).setValue(finance.balance);
   }
-  // AY, AZ: leave untouched for now
-  // All other columns untouched
 }
