@@ -200,11 +200,12 @@ async function processRow(sheet: ExcelScript.Worksheet, row: number, apiSummaryU
     caseStatus = finance.casestatus;
   }
   sheet.getCell(row - 1, 20).setValue(caseStatus);
-  // W (22): Charges - collect all charge descriptions
+  // W (22): Charges - collect charge descriptions for current docket only
   let chargeDescriptions: string[] = [];
   if (data.cases && data.cases.length > 0) {
     for (const caseData of data.cases) {
-      if (caseData.charges && caseData.charges.length > 0) {
+      // Only process charges for the current docket number
+      if (caseData.docketNo === docketNum && caseData.charges && caseData.charges.length > 0) {
         for (const charge of caseData.charges) {
           if (charge.description) {
             chargeDescriptions.push(charge.description);
@@ -214,6 +215,36 @@ async function processRow(sheet: ExcelScript.Worksheet, row: number, apiSummaryU
     }
   }
   sheet.getCell(row - 1, 22).setValue(chargeDescriptions.join(", "));
+  // X (23): Disposition - collect charge dispositions for current docket only
+  let dispositions: string[] = [];
+  if (data.cases && data.cases.length > 0) {
+    for (const caseData of data.cases) {
+      // Only process dispositions for the current docket number
+      if (caseData.docketNo === docketNum && caseData.charges && caseData.charges.length > 0) {
+        for (const charge of caseData.charges) {
+          if (charge.disposition) {
+            dispositions.push(charge.disposition);
+          }
+        }
+      }
+    }
+  }
+  sheet.getCell(row - 1, 23).setValue(dispositions.join(", "));
+  // Y (24): Grades - collect charge grades for current docket only
+  let grades: string[] = [];
+  if (data.cases && data.cases.length > 0) {
+    for (const caseData of data.cases) {
+      // Only process grades for the current docket number
+      if (caseData.docketNo === docketNum && caseData.charges && caseData.charges.length > 0) {
+        for (const charge of caseData.charges) {
+          if (charge.grade && charge.grade.trim() !== "") {
+            grades.push(charge.grade);
+          }
+        }
+      }
+    }
+  }
+  sheet.getCell(row - 1, 24).setValue(grades.join(", "));
   // AX (49): Case Balance
   if (finance && finance.balance) {
     sheet.getCell(row - 1, 49).setValue(finance.balance);
