@@ -245,6 +245,45 @@ async function processRow(sheet: ExcelScript.Worksheet, row: number, apiSummaryU
     }
   }
   sheet.getCell(row - 1, 24).setValue(grades.join(", "));
+  // Z (25): Sentence? - Yes if meaningful sentence exists for current docket
+  let hasSentence = false;
+  if (data.cases && data.cases.length > 0) {
+    for (const caseData of data.cases) {
+      // Only check sentences for the current docket number
+      if (caseData.docketNo === docketNum && caseData.charges && caseData.charges.length > 0) {
+        for (const charge of caseData.charges) {
+          if (charge.sentence && charge.sentence.length > 0) {
+            for (const sent of charge.sentence) {
+              if (sent.sentenceType) {
+                const sentType = sent.sentenceType.toLowerCase();
+                if (sentType.includes('probation') || sentType.includes('confinement') || sentType.includes('diversion')) {
+                  hasSentence = true;
+                  break;
+                }
+              }
+            }
+            if (hasSentence) break;
+          }
+        }
+        if (hasSentence) break;
+      }
+    }
+  }
+  sheet.getCell(row - 1, 25).setValue(hasSentence ? "Yes" : "No");
+  // AC (28): Disposition Date - get from current docket case data
+  let dispositionDate = "";
+  if (data.cases && data.cases.length > 0) {
+    for (const caseData of data.cases) {
+      // Only get disposition date for the current docket number
+      if (caseData.docketNo === docketNum && caseData.dispDt && caseData.dispDt.trim() !== "") {
+        dispositionDate = caseData.dispDt;
+        break; // Take the first non-empty disposition date for this docket
+      }
+    }
+  }
+  sheet.getCell(row - 1, 28).setValue(dispositionDate);
+  // Set disposition date cell to mm/dd/yyyy format
+  sheet.getCell(row - 1, 28).setNumberFormatLocal("mm/dd/yyyy");
   // AX (49): Case Balance
   if (finance && finance.balance) {
     sheet.getCell(row - 1, 49).setValue(finance.balance);
