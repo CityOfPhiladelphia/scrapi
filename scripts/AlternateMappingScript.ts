@@ -269,7 +269,7 @@ async function processRow(sheet: ExcelScript.Worksheet, row: number, apiSummaryU
       }
     }
   }
-  sheet.getCell(row - 1, 25).setValue(hasSentence ? "Yes" : "No");
+  sheet.getCell(row - 1, 25).setValue(hasSentence ? "Yes" : "No (CVC, VWS, CCC, don't need to be paid)");
   // AC (28): Disposition Date - get from current docket case data
   let dispositionDate = "";
   if (data.cases && data.cases.length > 0) {
