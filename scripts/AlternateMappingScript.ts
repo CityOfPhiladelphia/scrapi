@@ -80,50 +80,34 @@ async function main(workbook: ExcelScript.Workbook) {
     throw new Error("Eligibility Determinations worksheet not found.");
   }
 
-  // Find the last used row in the sheet
-  const usedRange = sheet.getUsedRange();
-  if (!usedRange) {
-    console.log("No data found in the worksheet.");
+  // Get the currently selected cell
+  const activeCell = workbook.getActiveCell();
+  const activeRow = activeCell.getRowIndex() + 1; // Convert to 1-based
+  const activeColumn = activeCell.getColumnIndex(); // 0-based
+
+  // Check if selection is in column B (index 1)
+  if (activeColumn !== 1) {
+    console.log("Please select a cell in column B (Docket Number column)");
     return;
   }
 
-  const lastRow = usedRange.getRowCount();
+  const docketCell = sheet.getCell(activeRow - 1, 1);
+  const docketNum = docketCell.getValue()?.toString().trim();
 
-  // Look for the first empty row with a docket number (user just added)
-  let targetRow = -1;
-  for (let row = 3; row <= lastRow + 1; row++) { // Check one row beyond last used
-    const idCell = sheet.getCell(row - 1, 0); // A = col 0
-    const idValue = idCell.getValue();
-    const docketCell = sheet.getCell(row - 1, 1); // B = col 1 (0-based)
-    const docketNum = docketCell.getValue()?.toString().trim();
-
-    // Found a row where A is empty but B has a docket number (newly added)
-    if ((!idValue || idValue === "") && docketNum) {
-      targetRow = row;
-      break;
-    }
+  if (!docketNum) {
+    console.log("Selected cell in column B is empty. Please select a cell with a docket number.");
+    return;
   }
 
-  // If no new docket found, process all empty A cells with docket numbers
-  if (targetRow === -1) {
-    // Fallback: process all rows with empty A and filled B
-    for (let row = 3; row <= lastRow; row++) {
-      await processRow(sheet, row, apiSummaryUrl, apiDocketUrl);
-    }
-  } else {
-    // Process just the newly added row
-    await processRow(sheet, targetRow, apiSummaryUrl, apiDocketUrl);
-  }
+  // Process just this row
+  await processRow(sheet, activeRow, apiSummaryUrl, apiDocketUrl);
 }
 
 async function processRow(sheet: ExcelScript.Worksheet, row: number, apiSummaryUrl: string, apiDocketUrl: string) {
-  const idCell = sheet.getCell(row - 1, 0); // A = col 0
-  const idValue = idCell.getValue();
   const docketCell = sheet.getCell(row - 1, 1); // B = col 1 (0-based)
   const docketNum = docketCell.getValue()?.toString().trim();
 
-  // Only process if A is empty and B (docket) is not empty
-  if ((idValue !== null && idValue !== undefined && idValue !== "") || !docketNum) return;
+  if (!docketNum) return;
 
   // Validate docket number format before processing
   const validation = validateDocketNumber(docketNum);
@@ -132,14 +116,6 @@ async function processRow(sheet: ExcelScript.Worksheet, row: number, apiSummaryU
     // Optionally, you can mark the error in a cell
     sheet.getCell(row - 1, 2).setValue(`ERROR: ${validation.errorMessage}`); // Column C
     return; // Skip this row
-  }
-
-  // --- Unique Identifier in A ---
-  if (row === 3) {
-    idCell.setValue(1);
-  } else {
-    const prevId = sheet.getCell(row - 2, 0).getValue();
-    idCell.setValue((typeof prevId === 'number' ? prevId : 0) + 1);
   }
 
   // Fetch summary data
