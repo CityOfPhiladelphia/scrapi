@@ -1,13 +1,28 @@
 // Validation function for docket numbers
 function validateDocketNumber(docketNum: string): { isValid: boolean; errorMessage?: string } {
-  // Pattern: [A-Z]{2}-\d{2}-CR-\d{7}-\d{4}
-  // Examples: MC-51-CR-0034177-2014, CP-02-CR-1234567-2020
-  const docketPattern = /^[A-Z]{2}-\d{2}-CR-\d{7}-\d{4}$/;
-
-  if (!docketPattern.test(docketNum)) {
+  // Check for empty or whitespace-only strings
+  if (!docketNum || docketNum.trim().length === 0) {
     return {
       isValid: false,
-      errorMessage: `Invalid docket format: '${docketNum}'. Expected format: XX-##-CR-#######-#### (e.g., MC-51-CR-0034177-2014)`
+      errorMessage: `Docket number cannot be empty. Please enter a docket number.`
+    };
+  }
+
+  // Basic check: contains letters, numbers, and dashes (more permissive)
+  const basicPattern = /^[A-Z0-9\-]+$/i;
+  
+  if (!basicPattern.test(docketNum)) {
+    return {
+      isValid: false,
+      errorMessage: `Invalid docket format: '${docketNum}'. Must contain only letters, numbers, and dashes.`
+    };
+  }
+
+  // Check minimum length
+  if (docketNum.length < 5) {
+    return {
+      isValid: false,
+      errorMessage: `Docket number '${docketNum}' is too short. Must be at least 5 characters.`
     };
   }
 
