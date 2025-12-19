@@ -99,6 +99,13 @@ interface ValidationResult {
   errorMessage?: string;
 }
 
+interface ErrorResponse {
+  message?: string;
+  error?: string;
+  statusCode?: number;
+  details?: string;
+}
+
 interface ApiResult {
   error?: string;
   person?: Person;
@@ -152,14 +159,44 @@ async function fetchApiData(url: string, docketNum: string): Promise<ApiResult> 
     const response = await fetch(`${url}?docketNum=${encodeURIComponent(docketNum)}`, {
       method: 'GET'
     });
+    
     if (response.ok) {
       return await response.json();
     } else {
-      return { error: `API Error ${response.status}: ${response.statusText}` };
+      // Try to get detailed error message from response body
+      let errorDetail = `${response.status}: ${response.statusText}`;
+      
+      try {
+        const errorText = await response.text();
+        if (errorText) {
+          // Try to parse as JSON first
+          try {
+            const errorJson: ErrorResponse = JSON.parse(errorText);
+            if (errorJson.message) {
+              errorDetail = `${response.status}: ${errorJson.message}`;
+            } else if (errorJson.error) {
+              errorDetail = `${response.status}: ${errorJson.error}`;
+            } else {
+              errorDetail = `${response.status}: ${errorText}`;
+            }
+          } catch {
+            // Not JSON, use raw text (truncate if too long)
+            const truncatedText = errorText.length > 100 ? errorText.substring(0, 100) + "..." : errorText;
+            errorDetail = `${response.status}: ${truncatedText}`;
+          }
+        }
+      } catch {
+        // If we can't read the response body, fall back to basic error
+        errorDetail = `${response.status}: ${response.statusText}`;
+      }
+      
+      return { error: `API Error ${errorDetail}` };
     }
   } catch (error) {
     console.log(`Failed to fetch from ${url}:`, error);
-    return { error: 'Network Error: Could not connect to court system' };
+    // Include more details from the network error
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { error: `Network Error: ${errorMessage}` };
   }
 }
 
