@@ -99,9 +99,24 @@ interface ValidationResult {
   errorMessage?: string;
 }
 
+interface ApiResult {
+  error?: string;
+  person?: Person;
+  cases?: Case[];
+  summaryUrl?: string;
+  zipcode?: string;
+  balance?: string;
+  assessment?: string;
+  payments?: string;
+  adjustments?: string;
+  nonmonetary?: string;
+  casestatus?: string;
+  docketUrl?: string;
+}
+
 interface ProcessedData {
-  summary?: ApiResponse;
-  financial?: FinancialResponse;
+  summary?: ApiResult;
+  financial?: ApiResult;
 }
 
 // input validation
@@ -132,23 +147,25 @@ function validateDocketNumber(docketNum: string): ValidationResult {
 }
 
 // data fetching
-async function fetchApiData<T>(url: string, docketNum: string): Promise<T | null> {
+async function fetchApiData(url: string, docketNum: string): Promise<ApiResult> {
   try {
     const response = await fetch(`${url}?docketNum=${encodeURIComponent(docketNum)}`, {
       method: 'GET'
     });
-    return response.ok ? await response.json() : null;
+    if (response.ok) {
+      return await response.json();
+    } else {
+      return { error: `API Error ${response.status}: ${response.statusText}` };
+    }
   } catch (error) {
     console.log(`Failed to fetch from ${url}:`, error);
-    return null;
+    return { error: 'Network Error: Could not connect to court system' };
   }
 }
 
 async function fetchAllData(docketNum: string): Promise<ProcessedData> {
-  const [summary, financial] = await Promise.all([
-    fetchApiData<ApiResponse>(api_config.summary_URL, docketNum),
-    fetchApiData<FinancialResponse>(api_config.docket_URL, docketNum)
-  ]);
+  const summary: ApiResult = await fetchApiData(api_config.summary_URL, docketNum);
+  const financial: ApiResult = await fetchApiData(api_config.docket_URL, docketNum);
 
   return { summary, financial };
 }
@@ -297,7 +314,7 @@ async function processRow(
   // Validate docket number
   const validation = validateDocketNumber(docketNum);
   if (!validation.isValid) {
-    console.log(`Skipping row ${row}: ${validation.errorMessage}`);
+    console.log(`❌ Skipping row ${row}: ${validation.errorMessage}`);
     populator.setError(validation.errorMessage!);
     return;
   }
@@ -305,16 +322,31 @@ async function processRow(
   // Fetch data
   const data = await fetchAllData(docketNum);
 
-  if (!data.summary?.person) {
-    console.log(`No person data found for docket: ${docketNum}`);
+  // Check for summary API errors
+  if (data.summary && data.summary.error) {
+    console.log(`❌ Summary API error for ${docketNum}: ${data.summary.error}`);
+    populator.setError(`Summary: ${data.summary.error}`);
     return;
+  }
+
+  // Check if we got person data
+  if (!data.summary || !data.summary.person) {
+    console.log(`❌ No person data found for docket: ${docketNum}`);
+    populator.setError(`No person data found for docket '${docketNum}'`);
+    return;
+  }
+
+  // Check for financial API errors (but continue - financial is optional)
+  if (data.financial && data.financial.error) {
+    console.log(`⚠️ Financial API warning for ${docketNum}: ${data.financial.error}`);
+    populator.setError(`Financial: ${data.financial.error} (person data processed)`);
   }
 
   // Populate sheet
   populator.populatePersonData(data.summary.person);
   populator.populateCaseData(docketNum, data);
 
-  console.log(`Successfully processed row ${row}: ${docketNum}`);
+  console.log(`✅ Successfully processed row ${row}: ${docketNum}`);
 }
 
 
