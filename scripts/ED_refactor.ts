@@ -150,6 +150,14 @@ function validateDocketNumber(docketNum: string): ValidationResult {
     };
   }
 
+  // Require at least one dash
+  if (!docketNum.includes('-')) {
+    return {
+      isValid: false,
+      errorMessage: `Invalid docket format: '${docketNum}'. Must contain at least one dash (e.g., CP-51-MD-0004672-2025).`
+    };
+  }
+
   return { isValid: true };
 }
 
@@ -333,6 +341,26 @@ class SheetPopulator {
   setError(message: string): void {
     this.setCell(columns.error_message, `ERROR: ${message}`);
   }
+
+  clearRow(): void {
+    // Clear all data columns except the docket number
+    this.setCell(columns.error_message, "");
+    this.setCell(columns.first_name, "");
+    this.setCell(columns.middle_name, "");
+    this.setCell(columns.last_name, "");
+    this.setCell(columns.aliases, "");
+    this.setCell(columns.zip, "");
+    this.setCell(columns.dob, "");
+    this.setCell(columns.race, "");
+    this.setCell(columns.sex, "");
+    this.setCell(columns.case_status, "");
+    this.setCell(columns.charges, "");
+    this.setCell(columns.disposition, "");
+    this.setCell(columns.grades, "");
+    this.setCell(columns.has_sentence, "");
+    this.setCell(columns.dispositon_date, "");
+    this.setCell(columns.case_balance, "");
+  }
 }
 
 // rows
@@ -352,9 +380,13 @@ async function processRow(
   const validation = validateDocketNumber(docketNum);
   if (!validation.isValid) {
     console.log(`❌ Skipping row ${row}: ${validation.errorMessage}`);
+    populator.clearRow();
     populator.setError(validation.errorMessage!);
     return;
   }
+
+  // Clear row before processing fresh data
+  populator.clearRow();
 
   // Fetch data
   const data = await fetchAllData(docketNum);
@@ -385,7 +417,6 @@ async function processRow(
 
   console.log(`✅ Successfully processed row ${row}: ${docketNum}`);
 }
-
 
 //main
 async function main(workbook: ExcelScript.Workbook): Promise<void> {
