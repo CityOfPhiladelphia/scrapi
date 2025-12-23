@@ -65,16 +65,30 @@ async function summary (acc: RestAccumulator): Promise<RestAccumulator> {
     `PDF does not contain valid pages or was not able to be parsed: ${JSON.stringify(data)}`
     );
     
+    // Debug logging for PDF extraction
+    console.log('📄 PDF extraction debug:');
+    console.log('Total pages:', data.pages.length);
+    console.log('First page content elements:', data.pages[0]?.content?.length || 0);
+    if (data.pages[0]?.content?.length > 0) {
+      console.log('First few content elements:', data.pages[0].content.slice(0, 3));
+    }
+    
     const text = data.pages
     .reduce((acc, page, idx) => {
         /** Get the lines per page */
         const lines = pdf.lines.group(page.content);
+        console.log(`Page ${idx + 1} grouped into ${lines.length} lines`);
         acc.push(lines);
 
         return acc;
     }, [] as string[][])
     .flat()
 
+    // Debug logging for final text array
+    console.log('🔤 Final text array debug:');
+    console.log('Total lines after flattening:', text.length);
+    console.log('First 5 lines:', text.slice(0, 5));
+    console.log('Lines 2-4 specifically:', text.slice(2, 5));
     
     const result = {
       person: person(text),
@@ -103,57 +117,70 @@ const keyValueMatch = ({ line, regex }: KVMatch): string => {
 
 // Helper function to extract and parse defendant name from lines
 const extractDefendantName = (lines: string[]) => {
+  console.log('👤 extractDefendantName debug:');
+  console.log('Lines array length:', lines?.length || 0);
+  console.log('Lines[2] exists:', !!lines[2]);
+  console.log('Lines[2] content:', lines[2] || 'undefined');
+  
+  if (!lines[2]) {
+    console.log('❌ No lines[2] - returning empty name');
+    return { fullName: '', first: '', middle: '', last: '' };
+  }
+  
   const fullName = lines[2].split('DOB:')[0].replaceAll('|', '').trim() || '';
+  console.log('Extracted fullName:', fullName);
   const [first, middle, last] = parseName(fullName);
   return { fullName, first, middle, last };
 };
 
-const matchers = (lines: string[]) => {
+const personMatchers = (lines: string[]) => {
    const nameInfo = extractDefendantName(lines); 
   
   return {
-    person: {
-      // Possibly break the regex out to their own mapping for easier test cases
-      [Defendant.Name]: () => nameInfo.fullName,
-      [Defendant.FirstName]: () => nameInfo.first,
-      [Defendant.MiddleName]: () => nameInfo.middle,
-      [Defendant.LastName]: () => nameInfo.last,
-      [Defendant.Address]: () => lines[3].split('Eyes:')[0].replaceAll('|', '').trim() || '',
-      [Defendant.DOB]: () => keyValueMatch({ line: lines[2], regex: /DOB:\s+(\d{2}\/\d{2}\/\d{4})/ }),
-      [Defendant.Sex]: () => keyValueMatch({ line: lines[2], regex: /Sex:\s+(\w+)/ }),
-      [Defendant.Eyes]: () => keyValueMatch({ line: lines[3], regex: /Eyes:\s+(\w+)/ }),
-      [Defendant.Hair]: () => keyValueMatch({ line: lines[4], regex: /Hair:\s+(\w+)/ }),
-      [Defendant.Race]: () => keyValueMatch({ line: lines[5], regex: /Race:\s+(\w+)/ }),
-      [Defendant.Aliases]: () => {
-        // Assumption - 20 aliases is generally going to be enough;
-        return lines.slice(
-          lines.findIndex((line) => line.match(/Aliases/)) + 1,
-          lines.findIndex((line) => line.match(/Open|Closed/))
-        )
-        .reduce((acc, lineText, idx) => {
-          /** Aliases share a line with demographic info */
-          if(lineText.match(/Race:/)) {
-            acc.push(lineText.split('Race:')[0].replaceAll('|', '').trim());
-            return acc;
-          };
-
-          acc.push(lineText);
+    // Possibly break the regex out to their own mapping for easier test cases
+    [Defendant.Name]: () => nameInfo.fullName,
+    [Defendant.FirstName]: () => nameInfo.first,
+    [Defendant.MiddleName]: () => nameInfo.middle,
+    [Defendant.LastName]: () => nameInfo.last,
+    [Defendant.Address]: () => lines[3]?.split('Eyes:')[0]?.replaceAll('|', '').trim() || '',
+    [Defendant.DOB]: () => keyValueMatch({ line: lines[2] || '', regex: /DOB:\s+(\d{2}\/\d{2}\/\d{4})/ }),
+    [Defendant.Sex]: () => keyValueMatch({ line: lines[2] || '', regex: /Sex:\s+(\w+)/ }),
+    [Defendant.Eyes]: () => keyValueMatch({ line: lines[3] || '', regex: /Eyes:\s+(\w+)/ }),
+    [Defendant.Hair]: () => keyValueMatch({ line: lines[4] || '', regex: /Hair:\s+(\w+)/ }),
+    [Defendant.Race]: () => keyValueMatch({ line: lines[5] || '', regex: /Race:\s+(\w+)/ }),
+    [Defendant.Aliases]: () => {
+      // Assumption - 20 aliases is generally going to be enough;
+      return lines.slice(
+        lines.findIndex((line) => line.match(/Aliases/)) + 1,
+        lines.findIndex((line) => line.match(/Open|Closed/))
+      )
+      .reduce((acc, lineText, idx) => {
+        /** Aliases share a line with demographic info */
+        if(lineText.match(/Race:/)) {
+          acc.push(lineText.split('Race:')[0].replaceAll('|', '').trim());
           return acc;
-        }, [] as string[]) || [];
-      }
-    },
-    case: {
-      /** These will be pulled as individual case slices
-       *  First two lines seem deterministic. 
-       */
-      [Case.DocketNumber]: () => keyValueMatch({ line: lines[0], regex: /([A-Z]+-\d+-[A-Z]+-\d+-\d+)/ }),
-      [Case.ProcStatus]: () => keyValueMatch({ line: lines[0], regex: /Proc Status:\s+(.+?)(?=DC No:|$)/ }),
-      [Case.DCNum]: () => keyValueMatch({ line: lines[0], regex: /DC No:\s*(\d{10})/ }),
-      [Case.OTN]: () => keyValueMatch({ line: lines[0], regex: /OTN:([A-Z]\s*\d+-\d+)/ }),
-      [Case.ArrestDate]: () => keyValueMatch({ line: lines[1], regex: /Arrest Dt:\s+(\d{2}\/\d{2}\/\d{4})/ }),
-      [Case.DispositionDate]: () => keyValueMatch({ line: lines[1], regex: /Disp Date:\s+(\d{2}\/\d{2}\/\d{4})/ }),
-      [Case.DispositionJudge]: () => keyValueMatch({ line: lines[1], regex: /Disp Judge:\s+(.+?)(?=\s{2,}|$)/ }),
-      [Case.DefenseAttorney]: () => keyValueMatch({ line: lines[2], regex: /Def Atty:\s+(.+?)(?=\s{2,}|$)/ }),
+        };
+
+        acc.push(lineText);
+        return acc;
+      }, [] as string[]) || [];
+    }
+  };
+};
+
+const caseMatchers = (lines: string[]) => {
+  return {
+    /** These will be pulled as individual case slices
+     *  First two lines seem deterministic. 
+     */
+    [Case.DocketNumber]: () => keyValueMatch({ line: lines[0] || '', regex: /([A-Z]+-\d+-[A-Z]+-\d+-\d+)/ }),
+    [Case.ProcStatus]: () => keyValueMatch({ line: lines[0] || '', regex: /Proc Status:\s+(.+?)(?=DC No:|$)/ }),
+    [Case.DCNum]: () => keyValueMatch({ line: lines[0] || '', regex: /DC No:\s*(\d{10})/ }),
+    [Case.OTN]: () => keyValueMatch({ line: lines[0] || '', regex: /OTN:([A-Z]\s*\d+-\d+)/ }),
+    [Case.ArrestDate]: () => keyValueMatch({ line: lines[1] || '', regex: /Arrest Dt:\s+(\d{2}\/\d{2}\/\d{4})/ }),
+    [Case.DispositionDate]: () => keyValueMatch({ line: lines[1] || '', regex: /Disp Date:\s+(\d{2}\/\d{2}\/\d{4})/ }),
+    [Case.DispositionJudge]: () => keyValueMatch({ line: lines[1] || '', regex: /Disp Judge:\s+(.+?)(?=\s{2,}|$)/ }),
+    [Case.DefenseAttorney]: () => keyValueMatch({ line: lines[2] || '', regex: /Def Atty:\s+(.+?)(?=\s{2,}|$)/ }),
       [Case.Charges]: () => {
  
         const charges = slices({ lines, reducer: chargeIndex });
@@ -201,8 +228,8 @@ const matchers = (lines: string[]) => {
           return {
             [Charge.SequenceNum]: seqNo,
             [Charge.Statute]: statute,
-            // Additional Validation 
-            [Charge.Grade]: grade.match(/[A-Z0-9]?[0-9]/) ? grade : '',
+            // Additional Validation - updated to allow 'S' grade without digit
+            [Charge.Grade]: grade.match(/^[A-Z]\d*$/) ? grade : '',
             [Charge.Description]: description,
             [Charge.Disposition]: disposition,
             [Charge.Sentence]: sentenceLines
@@ -212,24 +239,23 @@ const matchers = (lines: string[]) => {
         return result;
 
       }
-    }
-  }
-}
+  };
+};
 
 // Extract personal information
 const person = (lines: string[]) => {
-  const info = matchers(lines);
+  const info = personMatchers(lines);
   /** ToDo: Ensure we stop at a 'Closed' or 'Open' for aliases. */
   return Object.values(Defendant)
     .reduce((acc, key) => {
 
       if(key === Defendant.Aliases) {
         /** This block is for typescript narrowing only */
-        acc[Defendant.Aliases] = info.person[Defendant.Aliases]();
+        acc[Defendant.Aliases] = info[Defendant.Aliases]();
         return acc;
       };
       
-      acc[key] = info.person[key]();
+      acc[key] = info[key]();
       return acc;
     }, {
       [Defendant.Name]: '',
@@ -247,16 +273,16 @@ const person = (lines: string[]) => {
 };
 
 const cases = (lines: string[]) => { 
-  const info = matchers(lines);
+  const info = caseMatchers(lines);
 
   return Object.values(Case)
     .reduce((acc: Record<string, string | any[]>, key) => { 
       if(key === Case.Charges) {
-        acc[Case.Charges] = info.case[Case.Charges]();
+        acc[Case.Charges] = info[Case.Charges]();
         return acc;
       };
 
-      acc[key] = info.case[key]();
+      acc[key] = info[key]();
       return acc;
     }, {
       [Case.DocketNumber]: '',
