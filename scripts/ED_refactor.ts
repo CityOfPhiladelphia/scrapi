@@ -18,6 +18,7 @@ const columns = {
   race: 17,
   sex: 18,
   case_status: 20,
+  county: 21,
   charges: 22,
   disposition: 23,
   grades: 24,
@@ -118,6 +119,7 @@ interface ApiResult {
   adjustments?: string;
   nonmonetary?: string;
   casestatus?: string;
+  county?: string;
   docketUrl?: string;
 }
 
@@ -161,7 +163,7 @@ function validateDocketNumber(docketNum: string): ValidationResult {
   return { isValid: true };
 }
 
-// data fetching
+// Fetch data
 async function fetchApiData(url: string, docketNum: string): Promise<ApiResult> {
   try {
     const response = await fetch(`${url}?docketNum=${encodeURIComponent(docketNum)}`, {
@@ -312,6 +314,9 @@ class SheetPopulator {
     // Case status
     this.setCell(columns.case_status, financial?.casestatus || "");
 
+    // County
+    this.setCell(columns.county, financial?.county || "");
+
     // Charges, dispositions, and grades
     const charges = extractChargeData(summary?.cases, docketNum, c => c.description);
     const dispositions = extractChargeData(summary?.cases, docketNum, c => c.disposition);
@@ -379,7 +384,7 @@ async function processRow(
   // Validate docket number
   const validation = validateDocketNumber(docketNum);
   if (!validation.isValid) {
-    console.log(`❌ Skipping row ${row}: ${validation.errorMessage}`);
+    console.log(`Skipping row ${row}: ${validation.errorMessage}`);
     populator.clearRow();
     populator.setError(validation.errorMessage!);
     return;
@@ -393,21 +398,21 @@ async function processRow(
 
   // Check for summary API errors
   if (data.summary && data.summary.error) {
-    console.log(`❌ Summary API error for ${docketNum}: ${data.summary.error}`);
+    console.log(`Summary API error for ${docketNum}: ${data.summary.error}`);
     populator.setError(`Summary: ${data.summary.error}`);
     return;
   }
 
   // Check if we got person data
   if (!data.summary || !data.summary.person) {
-    console.log(`❌ No person data found for docket: ${docketNum}`);
+    console.log(`No person data found for docket: ${docketNum}`);
     populator.setError(`No person data found for docket '${docketNum}'`);
     return;
   }
 
   // Check for financial API errors (but continue - financial is optional)
   if (data.financial && data.financial.error) {
-    console.log(`⚠️ Financial API warning for ${docketNum}: ${data.financial.error}`);
+    console.log(`Financial API warning for ${docketNum}: ${data.financial.error}`);
     populator.setError(`Financial: ${data.financial.error} (person data processed)`);
   }
 
@@ -415,7 +420,7 @@ async function processRow(
   populator.populatePersonData(data.summary.person);
   populator.populateCaseData(docketNum, data);
 
-  console.log(`✅ Successfully processed row ${row}: ${docketNum}`);
+  console.log(`Successfully processed row ${row}: ${docketNum}`);
 }
 
 //main

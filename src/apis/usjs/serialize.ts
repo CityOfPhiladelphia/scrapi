@@ -376,6 +376,10 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   .trim()                   // remove leading/trailing junk
   .split(/\s+/)[0];   
 
+  // Extract county using the same pattern
+  const [countyLine] = text.filter((line) => { return line.match(/.*County:.*/)})
+  const county = countyLine ? countyLine.split('County:')[1]?.trim()?.split(/\s+/)[0] : '';
+
   acc.response.body = {
     zipcode, 
     balance: balance,
@@ -384,6 +388,7 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     adjustments: adjustments,
     nonmonetary: nonmonetary,
     casestatus,
+    county,
     docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
   };
 
