@@ -443,7 +443,6 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     nonmonetary: nonmonetary,
     casestatus,
     county,
-    defenseAtty,
     representationType,
     docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
   };

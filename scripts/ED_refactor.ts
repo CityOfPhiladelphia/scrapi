@@ -404,10 +404,7 @@ class SheetPopulator {
     this.setCellWithFormat(columns.dispositon_date, dispositionDate, date_format);
 
     // Representation type
-    console.log(`Debug - Financial object for ${docketNum}:`, JSON.stringify(financial, null, 2));
-    console.log(`Debug - representationType field:`, financial?.representationType);
     const representationType = financial?.representationType || getRepresentationType(financial?.cases, docketNum);
-    console.log(`Debug - Final representationType:`, representationType);
     this.setCell(columns.representation_type, representationType);
 
     // Case balance
