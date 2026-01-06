@@ -24,6 +24,7 @@ const columns = {
   grades: 24,
   has_sentence: 25,
   dispositon_date: 28,
+  representation_type: 36, // Column AK
   case_balance: 49
 } as const;
 
@@ -61,6 +62,7 @@ interface Case {
   dispDt?: string;
   dispJudge?: string;
   defenseAtty?: string;
+  representationType?: string;
   charges?: Charge[];
 }
 
@@ -121,6 +123,7 @@ interface ApiResult {
   casestatus?: string;
   county?: string;
   docketUrl?: string;
+  representationType?: string;
 }
 
 interface ProcessedData {
@@ -277,6 +280,69 @@ function getDispositionDate(cases: Case[] | undefined, docketNum: string): strin
   return docketCase?.dispDt || "";
 }
 
+function getRepresentationType(cases: Case[] | undefined, docketNum: string): string {
+  const docketCase = getCasesForDocket(cases, docketNum)
+    .find(c => c.defenseAtty?.trim());
+  
+  if (!docketCase?.defenseAtty) {
+    return "Blank ";
+  }
+
+  const lines = docketCase.defenseAtty.split('\n').map(line => line.trim()).filter(line => line);
+  
+  // Find the "ATTORNEY INFORMATION" header
+  const attorneyInfoIndex = lines.findIndex(line => 
+    line.toLowerCase().includes('attorney information')
+  );
+  
+  if (attorneyInfoIndex === -1 || lines.length < attorneyInfoIndex + 3) {
+    // If we can't find the structured format, fall back to basic pattern matching
+    const attorneyInfo = docketCase.defenseAtty.toLowerCase();
+    
+    if (attorneyInfo.includes('public defender') || attorneyInfo.includes('public')) {
+      return "Public Defender";
+    }
+    if (attorneyInfo.includes('court appointed')) {
+      return "Court appointed attorney";
+    }
+    if (attorneyInfo.includes('private') || attorneyInfo.includes('retained')) {
+      return "Private attorney";
+    }
+    if (attorneyInfo.includes('pro se') || attorneyInfo.includes('self represented')) {
+      return "NA, not a case from defenders, AOPC, GVI, or P3";
+    }
+    
+    return "NA, not a case from defenders, AOPC, GVI, or P3";
+  }
+  
+  // Parse the structured format:
+  // Line 1: "ATTORNEY INFORMATION"
+  // Line 2: Attorney's name
+  // Line 3: Representation type
+  const representationTypeLine = lines[attorneyInfoIndex + 2]?.toLowerCase().trim();
+  
+  if (!representationTypeLine) {
+    return "Blank ";
+  }
+  
+  // Map the representation type to dropdown values
+  if (representationTypeLine.includes('public')) {
+    return "Public Defender";
+  }
+  if (representationTypeLine.includes('court appointed')) {
+    return "Court appointed attorney";
+  }
+  if (representationTypeLine.includes('private')) {
+    return "Private attorney";
+  }
+  if (representationTypeLine.includes('pro se') || representationTypeLine.includes('self')) {
+    return "NA, not a case from defenders, AOPC, GVI, or P3";
+  }
+  
+  // If we have a structured format but can't categorize the type
+  return "NA, not a case from defenders, AOPC, GVI, or P3";
+}
+
 // sheets
 class SheetPopulator {
   constructor(
@@ -337,6 +403,13 @@ class SheetPopulator {
     const dispositionDate = getDispositionDate(summary?.cases, docketNum);
     this.setCellWithFormat(columns.dispositon_date, dispositionDate, date_format);
 
+    // Representation type
+    console.log(`Debug - Financial object for ${docketNum}:`, JSON.stringify(financial, null, 2));
+    console.log(`Debug - representationType field:`, financial?.representationType);
+    const representationType = financial?.representationType || getRepresentationType(financial?.cases, docketNum);
+    console.log(`Debug - Final representationType:`, representationType);
+    this.setCell(columns.representation_type, representationType);
+
     // Case balance
     if (financial?.balance) {
       this.setCell(columns.case_balance, financial.balance);
@@ -364,6 +437,7 @@ class SheetPopulator {
     this.setCell(columns.grades, "");
     this.setCell(columns.has_sentence, "");
     this.setCell(columns.dispositon_date, "");
+    this.setCell(columns.representation_type, "");
     this.setCell(columns.case_balance, "");
   }
 }

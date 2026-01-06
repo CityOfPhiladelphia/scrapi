@@ -380,6 +380,60 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   const [countyLine] = text.filter((line) => { return line.match(/.*County:.*/)})
   const county = countyLine ? countyLine.split('County:')[1]?.trim()?.split(/\s+/)[0] : '';
 
+  // Extract defense attorney information from ATTORNEY INFORMATION section
+  const attorneyInfoIndex = text.findIndex(line => 
+    line.toLowerCase().includes('attorney information')
+  );
+  
+  let defenseAtty = '';
+  let representationType = '';
+  
+  if (attorneyInfoIndex !== -1) {
+    // Get the attorney information section, handling pipe-delimited columns
+    const attorneyLines = text.slice(attorneyInfoIndex, attorneyInfoIndex + 10)
+      .filter(line => line.trim());
+    
+    // Extract only the defense attorney column (right side after pipes)
+    const defenseAttyLines = attorneyLines
+      .map(line => {
+        // Split by pipes and take the right column (defense attorney info)
+        const parts = line.split('|');
+        if (parts.length >= 2) {
+          // Take the rightmost non-empty part
+          const rightParts = parts.slice(1).filter(p => p.trim());
+          return rightParts.length > 0 ? rightParts[rightParts.length - 1].trim() : '';
+        }
+        return line.trim();
+      })
+      .filter(line => line && !line.toLowerCase().includes('commonwealth') && !line.toLowerCase().includes('district attorney'))
+      .join('\n');
+    
+    defenseAtty = defenseAttyLines;
+    
+    // Parse representation type from the defense attorney text
+    const attorneyText = defenseAttyLines.toLowerCase();
+    
+    // Also check individual lines for representation type
+    const allLines = attorneyLines.join('\n').toLowerCase();
+    
+    if (attorneyText.includes('public defender') || attorneyText.includes('public') || allLines.includes('public defender')) {
+      representationType = 'Public Defender';
+    } else if (attorneyText.includes('court appointed') || allLines.includes('court appointed')) {
+      representationType = 'Court appointed attorney';
+    } else if (attorneyText.includes('private') || allLines.includes('private')) {
+      representationType = 'Private attorney';
+    } else if (attorneyText.includes('pro se') || attorneyText.includes('self') || allLines.includes('pro se')) {
+      representationType = 'NA, not a case from defenders, AOPC, GVI, or P3';
+    } else if (defenseAttyLines.trim()) {
+      // Has defense attorney info but doesn't match known patterns
+      representationType = 'NA, not a case from defenders, AOPC, GVI, or P3';
+    } else {
+      representationType = 'Blank';
+    }
+  } else {
+    representationType = 'Blank';
+  }
+
   acc.response.body = {
     zipcode, 
     balance: balance,
@@ -389,6 +443,8 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     nonmonetary: nonmonetary,
     casestatus,
     county,
+    defenseAtty,
+    representationType,
     docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
   };
 
