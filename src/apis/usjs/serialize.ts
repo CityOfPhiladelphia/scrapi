@@ -152,7 +152,7 @@ const personMatchers = (lines: string[]) => {
       // Assumption - 20 aliases is generally going to be enough;
       return lines.slice(
         lines.findIndex((line) => line.match(/Aliases/)) + 1,
-        lines.findIndex((line) => line.match(/Open|Closed/))
+        lines.findIndex((line) => line.match(/Open|Closed|Adjudicated|Active|Pending|Dismissed|Completed|Inactive/))
       )
       .reduce((acc, lineText, idx) => {
         /** Aliases share a line with demographic info */
