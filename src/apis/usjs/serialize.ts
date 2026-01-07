@@ -178,7 +178,14 @@ const caseMatchers = (lines: string[]) => {
     [Case.DCNum]: () => keyValueMatch({ line: lines[0] || '', regex: /DC No:\s*(\d{10})/ }),
     [Case.OTN]: () => keyValueMatch({ line: lines[0] || '', regex: /OTN:([A-Z]\s*\d+-\d+)/ }),
     [Case.ArrestDate]: () => keyValueMatch({ line: lines[1] || '', regex: /Arrest Dt:\s+(\d{2}\/\d{2}\/\d{4})/ }),
-    [Case.DispositionDate]: () => keyValueMatch({ line: lines[1] || '', regex: /Disp Date:\s+(\d{2}\/\d{2}\/\d{4})/ }),
+    [Case.DispositionDate]: () => {
+      // Search the first 6 lines for disposition date pattern
+      for (let i = 0; i < Math.min(6, lines.length); i++) {
+        const result = keyValueMatch({ line: lines[i] || '', regex: /Disp Date:\s+(\d{2}\/\d{2}\/\d{4})/ });
+        if (result) return result;
+      }
+      return '';
+    },
     [Case.DispositionJudge]: () => keyValueMatch({ line: lines[1] || '', regex: /Disp Judge:\s+(.+?)(?=\s{2,}|$)/ }),
     [Case.DefenseAttorney]: () => keyValueMatch({ line: lines[2] || '', regex: /Def Atty:\s+(.+?)(?=\s{2,}|$)/ }),
       [Case.Charges]: () => {
