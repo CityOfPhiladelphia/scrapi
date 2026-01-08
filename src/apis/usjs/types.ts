@@ -44,6 +44,7 @@ export enum Case {
     DispositionDate = 'dispDt',
     DispositionJudge = 'dispJudge',
     DefenseAttorney = 'defenseAtty',
+    NextActionDate = 'nextActionDt',
     Charges = 'charges'
 }
 
@@ -57,6 +58,7 @@ export type CourtCase = {
     [Case.DispositionDate]: '',
     [Case.DispositionJudge]: '',
     [Case.DefenseAttorney]: '',
+    [Case.NextActionDate]: '',
     [Case.Charges]: CourtCharges[]
 };
 

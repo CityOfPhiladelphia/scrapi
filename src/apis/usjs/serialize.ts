@@ -188,6 +188,16 @@ const caseMatchers = (lines: string[]) => {
     },
     [Case.DispositionJudge]: () => keyValueMatch({ line: lines[1] || '', regex: /Disp Judge:\s+(.+?)(?=\s{2,}|$)/ }),
     [Case.DefenseAttorney]: () => keyValueMatch({ line: lines[2] || '', regex: /Def Atty:\s+(.+?)(?=\s{2,}|$)/ }),
+    [Case.NextActionDate]: () => {
+      // Search through all case lines for "Next Action Date:" followed by a date
+      for (const line of lines) {
+        const match = line.match(/Next Action Date:\s*(\d{2}\/\d{2}\/\d{4})/);
+        if (match && match[1]) {
+          return match[1];
+        }
+      }
+      return '';
+    },
       [Case.Charges]: () => {
  
         const charges = slices({ lines, reducer: chargeIndex });
@@ -300,6 +310,7 @@ const cases = (lines: string[]) => {
       [Case.DispositionDate]: '',
       [Case.DispositionJudge]: '',
       [Case.DefenseAttorney]: '',
+      [Case.NextActionDate]: '',
       [Case.Charges]: []
     } as CourtCase);
 }

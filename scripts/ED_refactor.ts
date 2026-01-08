@@ -24,7 +24,9 @@ const columns = {
   grades: 24,
   has_sentence: 25,
   dispositon_date: 28,
+  has_warrant: 35, // Column AJ
   representation_type: 36, // Column AK
+  next_action_docket: 37, // Column AL
   case_balance: 49
 } as const;
 
@@ -63,6 +65,7 @@ interface Case {
   dispJudge?: string;
   defenseAtty?: string;
   representationType?: string;
+  nextActionDt?: string;
   charges?: Charge[];
 }
 
@@ -280,6 +283,30 @@ function getDispositionDate(cases: Case[] | undefined, docketNum: string): strin
   return docketCase?.dispDt || "";
 }
 
+function hasActiveWarrant(cases: Case[] | undefined): string {
+  if (!cases) return "No";
+  
+  const hasWarrant = cases.some(caseData => 
+    caseData.procStatus?.toLowerCase().includes('warrant')
+  );
+  
+  return hasWarrant ? "Yes" : "No";
+}
+
+function getNextActionDocket(cases: Case[] | undefined): string {
+  if (!cases) return "";
+  
+  // Look through all cases to find one with a Next Action Date
+  for (const caseData of cases) {
+    if (caseData.nextActionDt?.trim()) {
+      // Found a case with a next action date
+      return caseData.docketNo || "";
+    }
+  }
+  
+  return "";
+}
+
 function getRepresentationType(cases: Case[] | undefined, docketNum: string): string {
   const docketCase = getCasesForDocket(cases, docketNum)
     .find(c => c.defenseAtty?.trim());
@@ -403,9 +430,17 @@ class SheetPopulator {
     const dispositionDate = getDispositionDate(summary?.cases, docketNum);
     this.setCellWithFormat(columns.dispositon_date, dispositionDate, date_format);
 
+    // Warrant status
+    const warrantStatus = hasActiveWarrant(summary?.cases);
+    this.setCell(columns.has_warrant, warrantStatus);
+
     // Representation type
     const representationType = financial?.representationType || getRepresentationType(financial?.cases, docketNum);
     this.setCell(columns.representation_type, representationType);
+
+    // Next action docket
+    const nextActionDocket = getNextActionDocket(summary?.cases);
+    this.setCell(columns.next_action_docket, nextActionDocket);
 
     // Case balance
     if (financial?.balance) {
@@ -434,7 +469,9 @@ class SheetPopulator {
     this.setCell(columns.grades, "");
     this.setCell(columns.has_sentence, "");
     this.setCell(columns.dispositon_date, "");
+    this.setCell(columns.has_warrant, "");
     this.setCell(columns.representation_type, "");
+    this.setCell(columns.next_action_docket, "");
     this.setCell(columns.case_balance, "");
   }
 }
