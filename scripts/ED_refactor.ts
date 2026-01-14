@@ -27,7 +27,9 @@ const columns = {
   has_warrant: 35, // Column AJ
   representation_type: 36, // Column AK
   next_action_docket: 37, // Column AL
-  case_balance: 49
+  case_balance: 49,
+  restitution_amount: 50, // Column AY
+  restitution_owed_to: 51 // Column AZ
 } as const;
 
 const sentence_status = {
@@ -97,6 +99,9 @@ interface FinancialResponse {
   adjustments?: string;
   nonmonetary?: string;
   casestatus?: string;
+  representationType?: string;
+  restitutionAmount?: string;
+  restitutionOwedTo?: string;
   docketUrl?: string;
 }
 
@@ -127,6 +132,8 @@ interface ApiResult {
   county?: string;
   docketUrl?: string;
   representationType?: string;
+  restitutionAmount?: string;
+  restitutionOwedTo?: string;
 }
 
 interface ProcessedData {
@@ -446,6 +453,16 @@ class SheetPopulator {
     if (financial?.balance) {
       this.setCell(columns.case_balance, financial.balance);
     }
+
+    // Restitution amount
+    if (financial?.restitutionAmount) {
+      this.setCell(columns.restitution_amount, financial.restitutionAmount);
+    }
+
+    // Restitution owed to
+    if (financial?.restitutionOwedTo) {
+      this.setCell(columns.restitution_owed_to, financial.restitutionOwedTo);
+    }
   }
 
   setError(message: string): void {
@@ -464,6 +481,7 @@ class SheetPopulator {
     this.setCell(columns.race, "");
     this.setCell(columns.sex, "");
     this.setCell(columns.case_status, "");
+    this.setCell(columns.county, "");
     this.setCell(columns.charges, "");
     this.setCell(columns.disposition, "");
     this.setCell(columns.grades, "");
@@ -473,6 +491,8 @@ class SheetPopulator {
     this.setCell(columns.representation_type, "");
     this.setCell(columns.next_action_docket, "");
     this.setCell(columns.case_balance, "");
+    this.setCell(columns.restitution_amount, "");
+    this.setCell(columns.restitution_owed_to, "");
   }
 }
 

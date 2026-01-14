@@ -384,6 +384,44 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   console.log('Total', total);
   const [_, _1, assessment, _2, payments, adjustments, nonmonetary, balance] = total && total.split('|') || []
 
+  // Extract restitution information
+  const restitutionLines = text.filter((line) => { 
+    return line.toLowerCase().includes('restitution') || 
+           line.match(/.*rest.*total.*|.*restitution.*amount.*|.*victim.*restitution.*/i)
+  });
+  
+  console.log('Restitution lines found:', restitutionLines);
+  
+  let restitutionAmount = '';
+  let restitutionOwedTo = '';
+  
+  // Parse restitution data from the found lines
+  for (const line of restitutionLines) {
+    // Look for monetary amounts in restitution lines
+    const amountMatch = line.match(/\$?[\d,]+\.?\d*/);
+    if (amountMatch && !restitutionAmount) {
+      restitutionAmount = amountMatch[0].replace(/^\$/, ''); // Remove $ if present
+    }
+    
+    // Categorize restitution type based on specific patterns
+    const lineText = line.toLowerCase();
+    if (!restitutionOwedTo) {
+      if (lineText.includes('individual restitution')) {
+        restitutionOwedTo = 'Individual person';
+      } else if (
+        lineText.includes('public assistance restitution') ||
+        lineText.includes('insurance fraud prevention authority') ||
+        lineText.includes('business entity restitution') ||
+        lineText.includes('unemployment compensation') ||
+        lineText.includes('providian national bank') ||
+        lineText.match(/.*bank.*restitution.*|.*corporation.*restitution.*|.*insurance.*restitution.*|.*government.*restitution.*/i)
+      ) {
+        restitutionOwedTo = 'Government, insurance company, or corporation';
+      }
+      // If no specific pattern matches, restitutionOwedTo remains blank
+    }
+  }
+
   // Extract case status using the same pattern as address
   const [caseStatusLine] = text.filter((line) => { return line.match(/.*Case Status.*/)})
   assert(caseStatusLine, 'Docket Sheet does not contain a status');
@@ -462,6 +500,8 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     casestatus,
     county,
     representationType,
+    restitutionAmount: restitutionAmount,
+    restitutionOwedTo: restitutionOwedTo,
     docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
   };
 
