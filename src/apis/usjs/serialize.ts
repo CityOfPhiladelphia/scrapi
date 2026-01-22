@@ -567,8 +567,45 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   const zipParts = zipline.trim().split(/\s+/);
   const zipcode = zipParts[zipParts.length - 1]; // Take the last part as zip code
   
-  const [total] = text.filter((line) => { return line.match(/^.*Grand Totals.*$/)})
-  console.log('Total', total);
+  // Try primary logic first - existing approach
+  let total = text.find((line) => line.match(/^.*Grand Totals.*$/));
+  
+  // If not found, try fallback strategies
+  if (!total) {
+    // Fallback 1: Case-insensitive search
+    total = text.find((line) => line.match(/grand totals/i));
+    
+    // Fallback 2: Page-by-page search if still not found
+    if (!total) {
+      for (const page of data.pages) {
+        const pageLines = pdf.lines.group(page.content);
+        const grandTotalLine = pageLines.find(line => line.match(/grand totals/i));
+        if (grandTotalLine) {
+          total = grandTotalLine;
+          break;
+        }
+      }
+    }
+    
+    // Fallback 3: Broader pattern matching for financial summaries
+    if (!total) {
+      total = text.find((line) => 
+        line.toLowerCase().includes('totals') && 
+        (line.includes('$') || line.includes('|'))
+      );
+    }
+    
+    // Fallback 4: Look for balance-related patterns
+    if (!total) {
+      total = text.find((line) => 
+        (line.toLowerCase().includes('balance') || 
+         line.toLowerCase().includes('total due') ||
+         line.toLowerCase().includes('amount owed')) &&
+        line.includes('|')
+      );
+    }
+  }
+  
   const [_, _1, assessment, _2, payments, adjustments, nonmonetary, balance] = total && total.split('|') || []
 
   // Extract restitution information
@@ -739,8 +776,3 @@ export const serialize = {
   summary,
   docket
 }
-
-//still struggling with statute/grade/description/disposition alignment//
-//and case balances that are on the next page
-//and restitution total vs balance because they do not use the same words//assume left over balance that needs 
-//to be paid
