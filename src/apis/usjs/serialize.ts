@@ -218,8 +218,194 @@ const caseMatchers = (lines: string[]) => {
           // This array is hard to parse - there's a variable level of spacing, so we need to go at it from both sides 
           // AND validate values at the end. 
           const split = charge.split('|');
-          const [seqNo, statute, grade = ''] = split.reduce(spaces, []);
-          const [description = '', disposition = ''] = split.slice(-2,).reduce(spaces, []);
+          
+          // Try original parsing logic first
+          const originalParsing = () => {
+            const [seqNo, statute, grade = ''] = split.reduce(spaces, []);
+            const [description = '', disposition = ''] = split.slice(-2,).reduce(spaces, []);
+            return { seqNo, statute, grade, description, disposition };
+          };
+          
+          // Check if we need robust parsing (field misalignment detected)
+          const needsRobustParsing = () => {
+            const original = originalParsing();
+            // Detect misalignment: statute appearing in description, or statute pattern in description
+            const hasStatuteInDescription = original.description && (
+              original.description.includes('§') || 
+              original.description.match(/^\d+\s*[A-Z]/) ||
+              original.description === original.statute
+            );
+            
+            // Detect grade duplication: grade appearing in description field
+            const hasGradeInDescription = original.description && original.grade && (
+              original.description === original.grade ||
+              (original.description.match(/^[A-Z]\d*$/) && original.description.length <= 3)
+            );
+            
+            // Detect field shifting: description is too short while disposition has substantial content
+            const hasFieldShifting = original.description && original.disposition && (
+              original.description.length <= 3 && 
+              original.disposition.length > 10 &&
+              original.description.match(/^[A-Z]\d*$/)
+            );
+            
+            // Detect missing grade with concatenated content: 
+            // Grade is empty/missing and § symbol appears in description (should only be in statute)
+            // OR statute field is empty but description contains § (statute got shifted)
+            const hasMissingGradeWithConcatenation = original.grade === '' && 
+              original.description && 
+              (original.description.includes('§') || (original.statute === '' && original.description.includes('§')));
+            
+            return hasStatuteInDescription || hasGradeInDescription || hasFieldShifting || hasMissingGradeWithConcatenation;
+          };
+          
+          let seqNo, statute, grade, description, disposition;
+          
+          if (needsRobustParsing()) {
+            // Apply robust parsing for misaligned cases (typically Active cases with blank dispositions)
+            const rawFields = split.map(field => field.trim());
+            
+            seqNo = '';
+            statute = '';
+            grade = '';
+            description = '';
+            disposition = '';
+            
+            // First field should be sequence number
+            if (rawFields[0] && rawFields[0].match(/^\d+$/)) {
+              seqNo = rawFields[0];
+            }
+            
+            // Second field should be statute (contains § symbol or follows statute pattern)
+            if (rawFields[1] && (rawFields[1].includes('§') || rawFields[1].match(/^\d+\s*[A-Z]/))) {
+              statute = rawFields[1];
+            }
+            
+            // Check for missing grade with concatenated content scenario
+            const original = originalParsing();
+            const isMissingGradeScenario = original.grade === '' && 
+              original.description && 
+              original.description.includes('§');
+            
+            if (isMissingGradeScenario) {
+              // Handle concatenated content where grade is missing
+              const descField = original.description;
+              const dispField = original.disposition;
+              
+              // The description field actually contains the statute - extract it
+              if (descField && descField.includes('§')) {
+                // Find where the statute ends by looking for transition to descriptive text
+                // Statutes are typically codes/numbers/symbols, descriptions are typically words
+                let statuteEnd = 0;
+                let foundDescriptiveText = false;
+                
+                // Look for § and then find where descriptive text likely starts
+                const parts = descField.split(/(\s+)/); // Split on whitespace but keep delimiters
+                let currentText = '';
+                
+                for (let i = 0; i < parts.length; i++) {
+                  const part = parts[i];
+                  currentText += part;
+                  
+                  // If we've seen § and now encounter what looks like descriptive text, stop here
+                  if (currentText.includes('§') && part.match(/^[A-Z][a-z]+/) && part.length > 3) {
+                    // Found what looks like the start of a description (capitalized word > 3 chars)
+                    foundDescriptiveText = true;
+                    break;
+                  }
+                }
+                
+                if (foundDescriptiveText) {
+                  // Split at the descriptive text
+                  const statuteMatch = descField.match(/^(.*?)([A-Z][a-z]{3,}.*)/);
+                  if (statuteMatch) {
+                    statute = statuteMatch[1].trim();
+                    const remainingDesc = statuteMatch[2].trim();
+                    
+                    // Handle disposition field as before
+                    if (dispField) {
+                      const dispKeywords = /(Guilty Plea|Not Guilty|Dismissed|Withdrawn|Held for Court|Nolle Prosequi|ARD|Guilty|Conviction|Acquittal)/i;
+                      const dispMatch = dispField.match(dispKeywords);
+                      
+                      if (dispMatch && typeof dispMatch.index === 'number') {
+                        const beforeDisp = dispField.substring(0, dispMatch.index).trim();
+                        const actualDisp = dispField.substring(dispMatch.index).trim();
+                        
+                        const descParts = [remainingDesc, beforeDisp].filter(part => part && part.length > 0);
+                        description = descParts.join(' ');
+                        disposition = actualDisp;
+                      } else {
+                        const descParts = [remainingDesc, dispField].filter(part => part && part.length > 0);
+                        description = descParts.join(' ');
+                        disposition = '';
+                      }
+                    } else {
+                      description = remainingDesc;
+                      disposition = '';
+                    }
+                  } else {
+                    // Fallback - couldn't parse, take everything as statute
+                    statute = descField;
+                    description = '';
+                    disposition = dispField || '';
+                  }
+                } else {
+                  // No descriptive text found after §, treat entire field as statute
+                  statute = descField;
+                  description = '';
+                  disposition = dispField || '';
+                }
+              }
+              
+              // Grade remains empty in this scenario
+              grade = '';
+              
+            } else {
+              // Use existing robust parsing logic for other scenarios
+              const remainingFields = rawFields.slice(2).filter(f => f && f.match(/[A-Z0-9]/));
+              
+              if (remainingFields.length >= 1) {
+                const lastField = remainingFields[remainingFields.length - 1];
+                const secondLastField = remainingFields.length >= 2 ? remainingFields[remainingFields.length - 2] : '';
+                
+                if (remainingFields.length === 1) {
+                  // Only one field remaining - determine if it's grade, description, or disposition
+                  if (lastField.match(/^[A-Z]\d*$/) && lastField.length <= 3) {
+                    grade = lastField;
+                  } else {
+                    description = lastField;
+                  }
+                } else if (remainingFields.length === 2) {
+                  // Two fields remaining
+                  if (secondLastField.match(/^[A-Z]\d*$/) && secondLastField.length <= 3) {
+                    grade = secondLastField;
+                    description = lastField;
+                  } else {
+                    description = secondLastField;
+                    disposition = lastField;
+                  }
+                } else if (remainingFields.length >= 3) {
+                  // Three or more fields
+                  if (remainingFields[0].match(/^[A-Z]\d*$/) && remainingFields[0].length <= 3) {
+                    grade = remainingFields[0];
+                    description = remainingFields[1];
+                    disposition = remainingFields.slice(2).join(' ');
+                  } else {
+                    description = remainingFields[0];
+                    disposition = remainingFields.slice(1).join(' ');
+                  }
+                }
+              }
+            }
+          } else {
+            // Use original parsing for normal cases
+            const original = originalParsing();
+            seqNo = original.seqNo;
+            statute = original.statute;
+            grade = original.grade;
+            description = original.description;
+            disposition = original.disposition;
+          }
 
           const sentenceLines = chargeLines.reduce((acc, line) => {
             const hasDate = line.match(/\d{2}\/\d{2}\/\d{4}/);
@@ -378,32 +564,57 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   assert(addressLine, 'Docket Sheet does not contain a zip code');
 
   const zipline = addressLine.split('City/State/Zip:')[1]
-  const zipcode = zipline.split(' ')[3]
+  const zipParts = zipline.trim().split(/\s+/);
+  const zipcode = zipParts[zipParts.length - 1]; // Take the last part as zip code
   
   const [total] = text.filter((line) => { return line.match(/^.*Grand Totals.*$/)})
   console.log('Total', total);
   const [_, _1, assessment, _2, payments, adjustments, nonmonetary, balance] = total && total.split('|') || []
 
   // Extract restitution information
-  const restitutionLines = text.filter((line) => { 
-    return line.toLowerCase().includes('restitution') || 
-           line.match(/.*rest.*total.*|.*restitution.*amount.*|.*victim.*restitution.*/i)
+  const restitutionTotalLines = text.filter((line) => { 
+    return line.toLowerCase().includes('restitution totals:')
   });
   
-  console.log('Restitution lines found:', restitutionLines);
+  // Broader search for restitution type information
+  const restitutionTypeLines = text.filter((line) => { 
+    return line.toLowerCase().includes('restitution')
+  });
+  
+  // Secondary search for known restitution entities that may not contain the word 'restitution'
+  const restitutionEntityLines = text.filter((line) => {
+    const lineText = line.toLowerCase();
+    return (
+      lineText.includes('insurance fraud prevention authority') ||
+      lineText.includes('business entity restitution') ||
+      lineText.includes('unemployment compensation') ||
+      lineText.includes('providian national bank') ||
+      lineText.includes('public assistance restitution') ||
+      lineText.includes('individual restitution')
+    );
+  });
+  
+  // Combine both searches
+  const allRestitutionLines = [...restitutionTypeLines, ...restitutionEntityLines];
+  
+  console.log('Restitution total lines found:', restitutionTotalLines);
+  console.log('Restitution type lines found:', restitutionTypeLines);
+  console.log('Restitution entity lines found:', restitutionEntityLines);
+  console.log('All restitution lines found:', allRestitutionLines);
   
   let restitutionAmount = '';
   let restitutionOwedTo = '';
   
-  // Parse restitution data from the found lines
-  for (const line of restitutionLines) {
-    // Look for monetary amounts in restitution lines
+  // Extract amount from restitution totals lines only
+  for (const line of restitutionTotalLines) {
     const amountMatch = line.match(/\$?[\d,]+\.?\d*/);
     if (amountMatch && !restitutionAmount) {
       restitutionAmount = amountMatch[0].replace(/^\$/, ''); // Remove $ if present
     }
-    
-    // Categorize restitution type based on specific patterns
+  }
+  
+  // Extract type from restitution lines
+  for (const line of restitutionTypeLines) {
     const lineText = line.toLowerCase();
     if (!restitutionOwedTo) {
       if (lineText.includes('individual restitution')) {
@@ -418,7 +629,21 @@ const docket = async (acc: RestAccumulator): Promise<RestAccumulator> => {
       ) {
         restitutionOwedTo = 'Government, insurance company, or corporation';
       }
-      // If no specific pattern matches, restitutionOwedTo remains blank
+    }
+  }
+  
+  // Process entity lines (these are already filtered for specific entities)
+  if (!restitutionOwedTo && restitutionEntityLines.length > 0) {
+    for (const line of restitutionEntityLines) {
+      const lineText = line.toLowerCase();
+      if (lineText.includes('individual restitution')) {
+        restitutionOwedTo = 'Individual person';
+        break;
+      } else {
+        // All other entities in our filter are corporate/government
+        restitutionOwedTo = 'Government, insurance company, or corporation';
+        break;
+      }
     }
   }
 
@@ -514,3 +739,8 @@ export const serialize = {
   summary,
   docket
 }
+
+//still struggling with statute/grade/description/disposition alignment//
+//and case balances that are on the next page
+//and restitution total vs balance because they do not use the same words//assume left over balance that needs 
+//to be paid
