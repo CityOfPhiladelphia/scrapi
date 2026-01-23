@@ -1,7 +1,9 @@
+/** USJS type definitions */
+
 export enum FileType {
     Summary = 'CpCourtSummary',
     DocketSheet = 'CpDocketSheet'
-  }
+}
 
 export enum Sentence {
     Date = 'sentenceDt',
@@ -14,7 +16,7 @@ export type CourtSentence = {
     [Sentence.Date]?: string,
     [Sentence.Type]?: string,
     [Sentence.ProgramPeriod]?: string,
-    [Sentence.Length]?: string 
+    [Sentence.Length]?: string
 }
 
 export enum Charge {
@@ -51,21 +53,20 @@ export enum Case {
 export type CourtCase = {
     [Case.DocketNumber]: string,
     [Case.ProcStatus]: string,
-    [Case.DocketNumber]: string,
+    [Case.DCNum]: string,
     [Case.OTN]: string,
-    [Case.ArrestDate]: '',
-    [Case.DCNum]: '',
-    [Case.DispositionDate]: '',
-    [Case.DispositionJudge]: '',
-    [Case.DefenseAttorney]: '',
-    [Case.NextActionDate]: '',
+    [Case.ArrestDate]: string,
+    [Case.DispositionDate]: string,
+    [Case.DispositionJudge]: string,
+    [Case.DefenseAttorney]: string,
+    [Case.NextActionDate]: string,
     [Case.Charges]: CourtCharges[]
 };
 
 export enum Defendant {
     Name = 'name',
     FirstName = 'firstName',
-    MiddleName = 'middleName', 
+    MiddleName = 'middleName',
     LastName = 'lastName',
     Address = 'address',
     DOB = 'dob',
@@ -92,5 +93,16 @@ export type SerializedSummary = {
     };
     cases: CourtCase[];
     summaryUrl?: string | null;
-}; 
+};
 
+/** Key-value matching parameters for regex extraction */
+export type KVMatch = {
+    line: string,
+    regex: RegExp
+};
+
+/** Slicing function parameters */
+export type SliceProps = {
+    lines: string[],
+    reducer: (acc: number[], line: string, idx: number) => number[]
+};
