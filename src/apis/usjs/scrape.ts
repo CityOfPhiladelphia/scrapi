@@ -88,7 +88,8 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
 
   // Find the row with your docket number first
   const docketRow = page.locator(`tr:has-text("${docketNum}")`);
-  const link = docketRow.locator(`[href*="/Report/${type}?"]`).first();
+  const index = type === FileType.DocketSheet ? 0 : 1;
+  const link = docketRow.locator(`[href*="/Report/"]`).nth(index);
 
   // Capture the actual URL before clicking
   const reportUrl = await link.getAttribute('href');
