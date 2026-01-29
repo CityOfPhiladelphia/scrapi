@@ -245,13 +245,124 @@ const extractSentences = (chargeLines: string[]): CourtSentence[] => {
   }, [] as CourtSentence[]);
 };
 
+/** Reconstruct full charge line from multiple lines */
+const reconstructChargeLine = (chargeLines: string[]): string => {
+  const sentenceDatePattern = /\d{2}\/\d{2}\/\d{4}/;
+  
+  // Filter out sentence lines (lines containing dates but not "Printed:")
+  const chargeOnlyLines = chargeLines.filter(line => 
+    !sentenceDatePattern.test(line) || line.includes('Printed:')
+  );
+  
+  if (chargeOnlyLines.length <= 1) {
+    return chargeOnlyLines[0] || '';
+  }
+  
+  // First line contains the main charge structure
+  const mainLine = chargeOnlyLines[0];
+  const continuationLines = chargeOnlyLines.slice(1);
+  
+  // Split main line to identify field positions
+  const mainParts = mainLine.split('|');
+  
+  // If continuation lines exist, append them to the description field
+  // Continuation text usually goes into the description area
+  if (continuationLines.length > 0 && mainParts.length >= 2) {
+    const continuationText = continuationLines
+      .map(line => line.trim())
+      .filter(line => line && !line.includes('Printed:'))
+      .join(' ');
+    
+    if (continuationText) {
+      // Find the description field (usually second to last or third field)
+      // Insert continuation text into appropriate position
+      if (mainParts.length >= 4) {
+        // Standard 5-field structure: seqNo | statute | grade | description | disposition
+        mainParts[3] = (mainParts[3] || '').trim() + ' ' + continuationText;
+      } else if (mainParts.length === 3) {
+        // Missing field structure: seqNo | statute | description-disposition
+        mainParts[2] = (mainParts[2] || '').trim() + ' ' + continuationText;
+      }
+    }
+  }
+  
+  return mainParts.join('|');
+};
+
+/** Detect missing grade field by analyzing field count and patterns */
+const detectMissingGrade = (split: string[]): boolean => {
+  const cleanFields = split.map(s => s.trim()).filter(s => s.length > 0);
+  
+  // If we have exactly 4 meaningful fields instead of expected 5
+  if (cleanFields.length === 4) {
+    const [seqNo, field1, field2, field3] = cleanFields;
+    
+    // Check if field1 looks like a statute (contains § or number pattern)
+    const isStatute = field1.includes('§') || field1.match(/^\d+\s*[A-Z]/);
+    
+    // Check if field2 looks like a grade (single letter + optional digits, 1-3 chars)
+    const isGrade = field2.match(/^[A-Z]\d*$/) && field2.length <= 3;
+    
+    // If field1 is statute but field2 is NOT a grade, grade is missing
+    if (isStatute && !isGrade) {
+      return true;
+    }
+  }
+  
+  return false;
+};
+
+/** Enhanced parsing for missing grade scenarios */
+const parseMissingGrade = (split: string[]) => {
+  const cleanFields = split.map(s => s.trim()).filter(s => s.length > 0);
+  
+  if (cleanFields.length === 4) {
+    const [seqNo, statute, description, disposition] = cleanFields;
+    
+    return {
+      seqNo: seqNo || '',
+      statute: statute || '',
+      grade: '', // Explicitly missing
+      description: description || '',
+      disposition: disposition || ''
+    };
+  }
+  
+  // Fallback to original parsing if structure doesn't match expected missing grade pattern
+  return originalParsing(split);
+};
+
 /** Orchestrates charge parsing for a case */
 export const parseCharges = (lines: string[]): CourtCharges[] => {
   const charges = slices({ lines, reducer: chargeIndex });
 
   return charges.map((chargeLines) => {
-    const [charge = ''] = chargeLines;
-    const parsed = parseChargeLine(charge);
+    // Reconstruct complete charge line from multiple lines if needed
+    const fullChargeLine = reconstructChargeLine(chargeLines);
+    const split = fullChargeLine.split('|');
+    
+    // Check for missing grade field first
+    let parsed;
+    if (detectMissingGrade(split)) {
+      parsed = parseMissingGrade(split);
+    } else if (needsRobustParsing(split)) {
+      // Use existing robust parsing for other misalignment issues
+      const rawFields = split.map(field => field.trim());
+      const original = originalParsing(split);
+      const isMissingGradeScenario = original.grade === '' &&
+        original.description &&
+        original.description.includes('§');
+
+      if (isMissingGradeScenario) {
+        parsed = parseMissingGradeScenario(rawFields, original);
+      } else {
+        parsed = parseRobustOther(rawFields);
+      }
+    } else {
+      // Use original parsing for normal cases
+      parsed = originalParsing(split);
+    }
+    
     const sentenceLines = extractSentences(chargeLines);
 
     return {
