@@ -293,15 +293,86 @@ const identifyFields = (split: string[]) => {
   return { seqNo, statute, grade, description, disposition };
 };
 
-/** Simple multi-line handler that just combines continuation lines */
+/** Simple multi-line handler that stops at case boundaries and PDF artifacts */
 const combineMultilineDescription = (chargeLines: string[]): string => {
   const sentenceDatePattern = /\d{2}\/\d{2}\/\d{4}/;
+  const docketNumberPattern = /[A-Z]+-\d+-[A-Z]+-\d+-\d+/;
   
-  // Filter out sentence lines and combine all charge-related lines
-  const chargeTextLines = chargeLines
-    .filter(line => !sentenceDatePattern.test(line) || line.includes('Printed:'))
-    .map(line => line.trim())
-    .filter(line => line.length > 0);
+  // PDF footer/metadata patterns that should stop processing
+  const pdfArtifactPatterns = [
+    /CPCMS/i,
+    /Printed:/i,
+    /Recent entries made/i,
+    /Administrative Office/i,
+    /Unified Judicial System/i,
+    /Commonwealth of Pennsylvania/i,
+    /Criminal History Record/i,
+    /Pennsylvania State Police/i,
+    /employer who does not comply/i,
+    /civil liability/i,
+    /Pa\.C\.S\./i
+  ];
+  
+  // More specific county/case boundary patterns
+  const caseStartPatterns = [
+    // Specific known Pennsylvania counties (more precise than generic pattern)
+    /^(Philadelphia|Montgomery|Bucks|Delaware|Chester|Berks|Lancaster|York|Dauphin|Allegheny|Westmoreland|Washington|Fayette|Greene|Beaver|Butler|Armstrong|Indiana|Jefferson|Clarion|Venango|Crawford|Erie|Warren|McKean|Potter|Tioga|Bradford|Susquehanna|Wayne|Pike|Monroe|Carbon|Northampton|Lehigh|Schuylkill|Lebanon|Luzerne|Lackawanna|Wyoming|Sullivan|Columbia|Montour|Snyder|Union|Northumberland|Lycoming|Clinton|Centre|Clearfield|Cambria|Blair|Huntingdon|Mifflin|Juniata|Perry|Cumberland|Adams|Franklin|Fulton|Bedford)$/,
+    // Case header patterns that definitely indicate new case
+    /^Proc Status:/i,
+    /^DC No:/i,
+    /^OTN:/i,
+    /^Arrest Dt:/i,
+    // Court patterns
+    /Court of Common Pleas/i,
+    /Municipal Court/i,
+    /District Court/i
+  ];
+  
+  const chargeTextLines = [];
+  let hitEmptyLine = false;
+  let processedFirstLine = false;
+  
+  for (const line of chargeLines) {
+    const trimmedLine = line.trim();
+    
+    // Stop immediately if we hit any PDF artifact patterns
+    if (pdfArtifactPatterns.some(pattern => pattern.test(trimmedLine))) {
+      break;
+    }
+    
+    // Skip sentence lines (containing dates but not "Printed:")
+    if (sentenceDatePattern.test(trimmedLine) && !trimmedLine.includes('Printed:')) {
+      continue;
+    }
+    
+    // If this is an empty line, mark it
+    if (trimmedLine.length === 0) {
+      hitEmptyLine = true;
+      continue;
+    }
+    
+    // If we previously hit an empty line and now have content,
+    // check if this looks like a new case
+    if (hitEmptyLine && trimmedLine.length > 0) {
+      if (caseStartPatterns.some(pattern => pattern.test(trimmedLine)) || 
+          docketNumberPattern.test(trimmedLine)) {
+        break;
+      }
+    }
+    
+    // After processing the first charge line, be more restrictive about what we accept
+    if (processedFirstLine) {
+      // Stop if we encounter definitive case boundary patterns
+      if (caseStartPatterns.some(pattern => pattern.test(trimmedLine)) ||
+          docketNumberPattern.test(trimmedLine)) {
+        break;
+      }
+    }
+    
+    chargeTextLines.push(trimmedLine);
+    processedFirstLine = true;
+    hitEmptyLine = false; // Reset after processing content
+  }
   
   return chargeTextLines.join(' | ');
 };

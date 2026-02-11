@@ -45,7 +45,9 @@ export async function summary(acc: RestAccumulator): Promise<RestAccumulator> {
     person: person(text),
     cases: slices({ lines: text, reducer: docketIndex })
       .map(cases),
-    summaryUrl: acc.data.scrapedUrls?.[FileType.Summary] || null
+    summaryUrl: acc.data.scrapedUrls?.[FileType.Summary] || null,
+    rawText: text,
+    rawChargeSlices: slices({ lines: text, reducer: docketIndex })
   };
 
   console.dir(result, { depth: null });

@@ -4,11 +4,16 @@ import type { SliceProps } from '../types.js';
 /** Reducer for finding docket number boundaries */
 export const docketIndex = (acc: number[], line: string, idx: number): number[] => {
   const docket = /([A-Z]+-\d+-[A-Z]+-\d+-\d+)/;
-  const match = line.match(docket);
+  const docketMatch = line.match(docket);
+  
+  // Also detect county names that start new cases
+  const countyPattern = /^\|(Philadelphia|Montgomery|Bucks|Delaware|Chester|Berks|Lancaster|York|Dauphin|Allegheny|Westmoreland|Washington|Fayette|Greene|Beaver|Butler|Armstrong|Indiana|Jefferson|Clarion|Venango|Crawford|Erie|Warren|McKean|Potter|Tioga|Bradford|Susquehanna|Wayne|Pike|Monroe|Carbon|Northampton|Lehigh|Schuylkill|Lebanon|Luzerne|Lackawanna|Wyoming|Sullivan|Columbia|Montour|Snyder|Union|Northumberland|Lycoming|Clinton|Centre|Clearfield|Cambria|Blair|Huntingdon|Mifflin|Juniata|Perry|Cumberland|Adams|Franklin|Fulton|Bedford)$/;
+  const countyMatch = line.match(countyPattern);
 
-  if (!match) return acc;
+  if (docketMatch || countyMatch) {
+    acc.push(idx);
+  }
 
-  acc.push(idx);
   return acc;
 };
 
