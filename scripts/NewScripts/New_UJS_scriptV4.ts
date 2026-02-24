@@ -230,38 +230,14 @@ async function main(workbook: ExcelScript.Workbook) {
   console.log(`📋 Processing ${inputData.length} docket numbers for identifier: ${personIdValue}`);
 
   // Create or get sheets
-  let personSheet = workbook.getWorksheet("Person Info") || workbook.addWorksheet("Person Info");
   let casesSheet = workbook.getWorksheet("Cases") || workbook.addWorksheet("Cases");
-  let chargesSheet = workbook.getWorksheet("Charges") || workbook.addWorksheet("Charges");
-  let financialSheet = workbook.getWorksheet("Financial Info") || workbook.addWorksheet("Financial Info");
-  let urlsSheet = workbook.getWorksheet("Links") || workbook.addWorksheet("Links");
 
   // Clear existing data
-  personSheet.getRange("A:Z").clear();
   casesSheet.getRange("A:Z").clear();
-  chargesSheet.getRange("A:Z").clear();
-  financialSheet.getRange("A:Z").clear();
-  urlsSheet.getRange("A:Z").clear();
 
   // Write headers
-  personSheet.getRange("A1:L1").setValues([[
-    "Person ID", "Docket Searched", "First Name", "Middle", "Last Name", "Address", "DOB", "Race", "Sex", "Eyes", "Hair", "Aliases"
-  ]]);
-
-  casesSheet.getRange("A1:N1").setValues([[ 
-    "Person ID", "Priority", "Docket No", "Dispositions", "DC No", "OTN", "Arrest Date", "Disp Date", "Judge", "Defense Atty", "Num Charges", "Original Docket", "Status", "Is the debt balance greater than $0?"
-  ]]);
-
-  chargesSheet.getRange("A1:J1").setValues([[
-    "Person ID", "Docket No", "Seq", "Statute", "Grade", "Description", "Disposition", "Sentence Date", "Sentence Type", "Sentence Length"
-  ]]);
-
-  financialSheet.getRange("A1:H1").setValues([[
-    "Person ID", "Docket No", "Zip Code", "Balance", "Assessment", "Payments", "Adjustments", "Non-Monetary"
-  ]]);
-
-  urlsSheet.getRange("A1:D1").setValues([[
-    "Person ID", "Docket No", "Court Summary URL", "Docket Sheet URL"
+  casesSheet.getRange("A4:L4").setValues([[ 
+    "Unique Identifier", "Docket No", "Dispositions", "Status", "Is the debt balance greater than $0?", "DC No", "OTN", "Arrest Date", "Disp Date", "Judge", "Defense Atty", "Num Charges"
   ]]);
 
   // Data structures for processing
@@ -269,6 +245,14 @@ async function main(workbook: ExcelScript.Workbook) {
   const allCasesByPersonId = new Map<string, ProcessedCase[]>();
   const financialDataByDocket = new Map<string, FinancialResponse>();
   const urlDataByDocket = new Map<string, { summaryUrl: string; docketUrl: string }>();
+
+  // Track processing statistics
+  const processingStats = {
+    validationErrors: [] as string[],
+    fetchErrors: [] as string[],
+    processingErrors: [] as string[],
+    successCount: 0
+  };
 
   // Process each input docket number
   for (const input of inputData) {
@@ -279,32 +263,40 @@ async function main(workbook: ExcelScript.Workbook) {
     const docketValidation = validateDocketNumber(docketNum);
 
     if (!personIdValidation.isValid) {
-      console.log(`❌ Person ID Validation Error: ${personIdValidation.errorMessage}`);
+      processingStats.validationErrors.push(`Person ID: ${personIdValidation.errorMessage}`);
       continue;
     }
 
     if (!docketValidation.isValid) {
-      console.log(`❌ Docket Validation Error: ${docketValidation.errorMessage}`);
+      processingStats.validationErrors.push(`Docket ${docketNum}: ${docketValidation.errorMessage}`);
       continue;
     }
 
-    try {
-      // Fetch summary data
-      const response = await fetch(`${apiSummaryUrl}?docketNum=${encodeURIComponent(docketNum)}`, {
-        method: 'GET'
-      });
+    // Fetch summary data
+    const response = await fetch(`${apiSummaryUrl}?docketNum=${encodeURIComponent(docketNum)}`, {
+      method: 'GET'
+    });
 
-      if (!response.ok) {
-        console.log(`Failed to fetch summary for ${docketNum}`);
-        continue;
-      }
+    if (!response.ok) {
+      processingStats.fetchErrors.push(`Failed to fetch summary for ${docketNum}`);
+      continue;
+    }
 
-      const data: ApiResponse = await response.json();
+    const data: ApiResponse | null = await response.json().catch((error) => {
+      processingStats.processingErrors.push(`${personId}/${docketNum}: JSON parse error - ${error}`);
+      return null;
+    });
 
-      // Store person data (will be consolidated later if multiple dockets for same person)
-      if (data.person) {
-        personDataByPersonId.set(personId, data.person);
-      }
+    if (!data) {
+      continue;
+    }
+
+    processingStats.successCount++;
+
+    // Store person data (will be consolidated later if multiple dockets for same person)
+    if (data.person) {
+      personDataByPersonId.set(personId, data.person);
+    }
 
       // Process cases
       if (data.cases && data.cases.length > 0) {
@@ -344,9 +336,18 @@ async function main(workbook: ExcelScript.Workbook) {
 
       await new Promise(resolve => setTimeout(resolve, 150)); // throttle
 
-    } catch (error: unknown) {
-      console.log(`Processing failed for ${personId}/${docketNum}: ${error}`);
-    }
+  }
+
+  // Log processing summary
+  console.log(`📋 Processing complete: ${processingStats.successCount}/${inputData.length} successful`);
+  if (processingStats.validationErrors.length > 0) {
+    console.log(`❌ ${processingStats.validationErrors.length} validation errors`);
+  }
+  if (processingStats.fetchErrors.length > 0) {
+    console.log(`❌ ${processingStats.fetchErrors.length} fetch errors`);
+  }
+  if (processingStats.processingErrors.length > 0) {
+    console.log(`❌ ${processingStats.processingErrors.length} processing errors`);
   }
 
   // Collect all unique docket numbers from case results and fetch missing financial data
@@ -354,7 +355,7 @@ async function main(workbook: ExcelScript.Workbook) {
   const allDiscoveredDockets = new Set<string>();
   
   // Collect all docket numbers from case results
-  for (const cases of allCasesByPersonId.values()) {
+  for (const cases of Array.from(allCasesByPersonId.values())) {
     for (const caseData of cases) {
       if (caseData.docketNo && caseData.docketNo.trim()) {
         allDiscoveredDockets.add(caseData.docketNo);
@@ -364,7 +365,7 @@ async function main(workbook: ExcelScript.Workbook) {
 
   // Find dockets we don't have financial data for yet
   const missingFinancialDockets: string[] = [];
-  for (const docketNo of allDiscoveredDockets) {
+  for (const docketNo of Array.from(allDiscoveredDockets)) {
     if (!financialDataByDocket.has(docketNo)) {
       missingFinancialDockets.push(docketNo);
     }
@@ -372,30 +373,35 @@ async function main(workbook: ExcelScript.Workbook) {
 
   console.log(`📊 Found ${missingFinancialDockets.length} additional dockets needing financial data`);
 
+  // Track financial data fetch statistics
+  let financialSuccessCount = 0;
+  let financialErrorCount = 0;
+
   // Fetch financial data for missing dockets in parallel batches
   const BATCH_SIZE = 8; // Process 8 dockets concurrently
   const docketChunks = chunkArray(missingFinancialDockets, BATCH_SIZE);
   
   for (let i = 0; i < docketChunks.length; i++) {
     const chunk = docketChunks[i];
-    console.log(`🔄 Processing batch ${i + 1}/${docketChunks.length} (${chunk.length} dockets)`);
     
     // Process all dockets in this chunk simultaneously
     const promises = chunk.map(async (docketNo) => {
-      try {
-        const financeRes = await fetch(`${apiDocketUrl}?docketNum=${encodeURIComponent(docketNo)}`, {
-          method: 'GET'
-        });
+      const financeRes = await fetch(`${apiDocketUrl}?docketNum=${encodeURIComponent(docketNo)}`, {
+        method: 'GET'
+      });
 
-        if (financeRes.ok) {
-          const finance: FinancialResponse = await financeRes.json();
+      if (financeRes.ok) {
+        const finance: FinancialResponse | null = await financeRes.json().catch(() => {
+          financialErrorCount++;
+          return null;
+        });
+        
+        if (finance) {
           financialDataByDocket.set(docketNo, finance);
-          console.log(`✅ Got financial data for ${docketNo}`);
-        } else {
-          console.log(`❌ Failed to get financial data for ${docketNo}`);
+          financialSuccessCount++;
         }
-      } catch (error: unknown) {
-        console.log(`❌ Error fetching financial data for ${docketNo}: ${error}`);
+      } else {
+        financialErrorCount++;
       }
     });
 
@@ -408,30 +414,32 @@ async function main(workbook: ExcelScript.Workbook) {
     }
   }
 
-  console.log(`💰 Financial data collection complete. Total dockets: ${financialDataByDocket.size}`);
-
-  // Write Person Info (one row per person ID)
-  let personRow = 2;
-  for (const [personId, person] of personDataByPersonId) {
-    const firstDocketForPerson = inputData.find(input => input.personId === personId)?.docketNum || "";
-    
-    personSheet.getRange(`A${personRow}:L${personRow}`).setValues([[
-      personId,
-      firstDocketForPerson,
-      person.firstName || "", person.middleName || "", person.lastName || "",
-      person.address || "", person.dob || "",
-      person.race || "", person.sex || "", person.eyes || "", person.hair || "",
-      (person.aliases || []).join("; ")
+  console.log(`💰 Financial data collection complete. Success: ${financialSuccessCount}, Errors: ${financialErrorCount}, Total: ${financialDataByDocket.size}`);
+  // Add person name table to Cases sheet (at the top)
+  const firstPersonData: Person | undefined = Array.from(personDataByPersonId.values())[0];
+  if (firstPersonData) {
+    // Set person name headers at A1:C1 in Cases sheet
+    casesSheet.getRange("A1:C1").setValues([[
+      "First Name", "Middle", "Last Name"
     ]]);
     
-    // Set DOB column (G) to mm/dd/yyyy format for this row
-    personSheet.getRange(`G${personRow}`).setNumberFormatLocal("mm/dd/yyyy");
-    personRow++;
+    // Set person name values at A2:C2 in Cases sheet
+    casesSheet.getRange("A2:C2").setValues([[
+      firstPersonData.firstName || "",
+      firstPersonData.middleName || "", 
+      firstPersonData.lastName || ""
+    ]]);
+    
+    // Bold the headers
+    casesSheet.getRange("A1:C1").getFormat().getFont().setBold(true);
+    
+    // Apply yellow highlight to the person name values row
+    casesSheet.getRange("A2:C2").getFormat().getFill().setColor("#FFFFCC"); // Same yellow as high priority cases
   }
 
   // Process and write Cases (grouped, deduplicated, sorted)
-  let caseRow = 2;
-  for (const [personId, cases] of allCasesByPersonId) {
+  let caseRow = 5;
+  for (const [personId, cases] of Array.from(allCasesByPersonId.entries())) {
     // Deduplicate by docket number
     const uniqueCases = new Map<string, ProcessedCase>();
     for (const caseData of cases) {
@@ -457,7 +465,11 @@ async function main(workbook: ExcelScript.Workbook) {
 
     // Write cases for this person
     for (const caseData of sortedCases) {
-      const priorityText = caseData.isEligibleDisposition ? "HIGH" : "LOW";
+      // Skip cases without a docket number
+      if (!caseData.docketNo || caseData.docketNo.trim() === "") {
+        continue;
+      }
+      
       const allDispositions = getAllDispositions(caseData);
       
       // Determine if debt balance is greater than $0 for this specific docket
@@ -471,19 +483,23 @@ async function main(workbook: ExcelScript.Workbook) {
           isDebtGreaterThanZero = "Yes";
         }
       }
-      casesSheet.getRange(`A${caseRow}:N${caseRow}`).setValues([[ 
+      casesSheet.getRange(`A${caseRow}:L${caseRow}`).setValues([[ 
         personId,
-        priorityText,
-        caseData.docketNo || "", allDispositions, caseData.dcNo || "",
+        caseData.docketNo || "", allDispositions, caseData.procStatus || "",
+        isDebtGreaterThanZero, caseData.dcNo || "",
         caseData.otn || "", caseData.arrestDt || "", caseData.dispDt || "",
         caseData.dispJudge || "", caseData.defenseAtty || "",
-        (caseData.charges || []).length, caseData.originalDocketSearched, caseData.procStatus || "",
-        isDebtGreaterThanZero
+        (caseData.charges || []).length
       ]]);
 
-      // Format high priority cases with highlighting
-      if (caseData.isEligibleDisposition) {
-        const rowRange = casesSheet.getRange(`A${caseRow}:N${caseRow}`);
+      // Format cases based on debt status and priority
+      const rowRange = casesSheet.getRange(`A${caseRow}:L${caseRow}`);
+      
+      if (isDebtGreaterThanZero === "No") {
+        // Light grey for no debt (disqualified)
+        rowRange.getFormat().getFill().setColor("#D3D3D3"); // Light grey
+      } else if (caseData.isEligibleDisposition) {
+        // Yellow highlight for high priority cases with debt
         rowRange.getFormat().getFont().setBold(true);
         rowRange.getFormat().getFill().setColor("#FFFFCC"); // Light yellow highlight
       }
@@ -492,108 +508,20 @@ async function main(workbook: ExcelScript.Workbook) {
     }
   }
 
-  // Write Charges
-  let chargeRow = 2;
-  for (const [personId, cases] of allCasesByPersonId) {
-    // Use the same deduplication and sorting logic
-    const uniqueCases = new Map<string, ProcessedCase>();
-    for (const caseData of cases) {
-      const docketNo = caseData.docketNo || "";
-      if (!uniqueCases.has(docketNo) || caseData.originalDocketSearched === docketNo) {
-        uniqueCases.set(docketNo, caseData);
-      }
-    }
-
-    const sortedCases = Array.from(uniqueCases.values()).sort((a, b) => {
-      if (a.sortPriority !== b.sortPriority) {
-        return a.sortPriority - b.sortPriority;
-      }
-      const dateA = parseDispositionDate(a.dispDt);
-      const dateB = parseDispositionDate(b.dispDt);
-      return dateA.getTime() - dateB.getTime();
-    });
-
-    for (const caseData of sortedCases) {
-      if (caseData.charges && caseData.charges.length > 0) {
-        for (const charge of caseData.charges) {
-          const sentences: Sentence[] = charge.sentence || [];
-
-          if (sentences.length > 0) {
-            for (const sentence of sentences) {
-              chargesSheet.getRange(`A${chargeRow}:J${chargeRow}`).setValues([[
-                personId,
-                caseData.docketNo || "", charge.seqNo || "", charge.statute || "",
-                charge.grade || "", charge.description || "", charge.disposition || "",
-                sentence.sentenceDt || "", sentence.sentenceType || "", sentence.sentenceLen || ""
-              ]]);
-              chargeRow++;
-            }
-          } else {
-            chargesSheet.getRange(`A${chargeRow}:J${chargeRow}`).setValues([[
-              personId,
-              caseData.docketNo || "", charge.seqNo || "", charge.statute || "",
-              charge.grade || "", charge.description || "", charge.disposition || "",
-              "", "", ""
-            ]]);
-            chargeRow++;
-          }
-        }
-      }
-    }
-  }
-
-  // Write Financial Info
-  let financeRow = 2;
-  for (const input of inputData) {
-    const finance = financialDataByDocket.get(input.docketNum);
-    if (finance) {
-      financialSheet.getRange(`A${financeRow}:H${financeRow}`).setValues([[
-        input.personId,
-        input.docketNum,
-        finance.zipcode || "",
-        finance.balance || "",
-        finance.assessment || "",
-        finance.payments || "",
-        finance.adjustments || "",
-        finance.nonmonetary || ""
-      ]]);
-      financeRow++;
-    }
-  }
-
-  // Write URLs
-  let urlRow = 2;
-  for (const input of inputData) {
-    const urlData = urlDataByDocket.get(input.docketNum);
-    if (urlData) {
-      urlsSheet.getRange(`A${urlRow}:D${urlRow}`).setValues([[
-        input.personId,
-        input.docketNum,
-        urlData.summaryUrl,
-        urlData.docketUrl
-      ]]);
-
-      // Auto-wrap the URLs
-      urlsSheet.getRange(`C${urlRow}:D${urlRow}`).getFormat().setWrapText(true);
-      urlRow++;
-    }
-  }
-
-  // Format sheets
-  function formatSheet(sheet: ExcelScript.Worksheet, headerRange: string) {
-    const header = sheet.getRange(headerRange);
-    header.getFormat().getFont().setBold(true);
-    header.getFormat().getFill().setColor("#DDEEFF"); // blue
-    header.getFormat().getFont().setSize(16);
-    sheet.getUsedRange().getFormat().getFont().setSize(16);
-    sheet.getUsedRange().getFormat().autofitColumns();
-  }
-
-  formatSheet(personSheet, "A1:L1");
-  formatSheet(casesSheet, "A1:L1");
-  formatSheet(chargesSheet, "A1:J1");
-  formatSheet(financialSheet, "A1:H1");
-  formatSheet(urlsSheet, "A1:D1");
+  // Format cases sheet - only specific header ranges get blue color
+  const casesHeaderRange1 = casesSheet.getRange("A1:C1"); // Person name headers
+  casesHeaderRange1.getFormat().getFont().setBold(true);
+  casesHeaderRange1.getFormat().getFill().setColor("#DDEEFF"); // blue
+  casesHeaderRange1.getFormat().getFont().setSize(16);
+  
+  const casesHeaderRange2 = casesSheet.getRange("A4:L4"); // Cases table headers  
+  casesHeaderRange2.getFormat().getFont().setBold(true);
+  casesHeaderRange2.getFormat().getFill().setColor("#DDEEFF"); // blue
+  casesHeaderRange2.getFormat().getFont().setSize(16);
+  
+  // Apply general formatting to cases sheet
+  casesSheet.getUsedRange().getFormat().getFont().setSize(16);
+  casesSheet.getUsedRange().getFormat().autofitColumns();
 
   console.log("✅ Done! Cases are grouped by Person ID, deduplicated, and sorted by priority and disposition date.");
 }
