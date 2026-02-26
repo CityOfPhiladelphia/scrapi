@@ -172,6 +172,12 @@ function chunkArray<T>(array: T[], chunkSize: number): T[][] {
 }
 
 async function main(workbook: ExcelScript.Workbook) {
+  // Initialize timing tracking
+  const scriptStartTime = Date.now();
+  let phaseStartTime = scriptStartTime;
+  
+  console.log(`🚀 Script started at ${new Date().toLocaleTimeString()}`);
+  
   const apiSummaryUrl = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary";
   const apiDocketUrl = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/docket";
 
@@ -227,7 +233,10 @@ async function main(workbook: ExcelScript.Workbook) {
     return;
   }
 
-  console.log(`📋 Processing ${inputData.length} docket numbers for identifier: ${personIdValue}`);
+  const setupTime = Date.now() - phaseStartTime;
+  phaseStartTime = Date.now();
+  
+  console.log(`📋 Processing ${inputData.length} docket numbers for identifier: ${personIdValue} (setup: ${setupTime}ms)`);
 
   // Create or get sheets
   let casesSheet = workbook.getWorksheet("Cases") || workbook.addWorksheet("Cases");
@@ -293,8 +302,8 @@ async function main(workbook: ExcelScript.Workbook) {
 
     processingStats.successCount++;
 
-    // Store person data (will be consolidated later if multiple dockets for same person)
-    if (data.person) {
+    // Store person data only from the first docket (for consistency)
+    if (data.person && !personDataByPersonId.has(personId)) {
       personDataByPersonId.set(personId, data.person);
     }
 
@@ -338,8 +347,12 @@ async function main(workbook: ExcelScript.Workbook) {
 
   }
 
-  // Log processing summary
-  console.log(`📋 Processing complete: ${processingStats.successCount}/${inputData.length} successful`);
+  // Log processing summary with timing
+  const initialProcessingTime = Date.now() - phaseStartTime;
+  const avgTimePerDocket = processingStats.successCount > 0 ? Math.round(initialProcessingTime / processingStats.successCount) : 0;
+  phaseStartTime = Date.now();
+  
+  console.log(`📋 Processing complete: ${processingStats.successCount}/${inputData.length} successful (${Math.round(initialProcessingTime / 1000)}s total, ${avgTimePerDocket}ms avg/docket)`);
   if (processingStats.validationErrors.length > 0) {
     console.log(`❌ ${processingStats.validationErrors.length} validation errors`);
   }
@@ -414,7 +427,11 @@ async function main(workbook: ExcelScript.Workbook) {
     }
   }
 
-  console.log(`💰 Financial data collection complete. Success: ${financialSuccessCount}, Errors: ${financialErrorCount}, Total: ${financialDataByDocket.size}`);
+  const financialProcessingTime = Date.now() - phaseStartTime;
+  const avgFinancialTime = missingFinancialDockets.length > 0 ? Math.round(financialProcessingTime / missingFinancialDockets.length) : 0;
+  phaseStartTime = Date.now();
+  
+  console.log(`💰 Financial data collection complete. Success: ${financialSuccessCount}, Errors: ${financialErrorCount}, Total: ${financialDataByDocket.size} (${Math.round(financialProcessingTime / 1000)}s total, ${avgFinancialTime}ms avg/docket)`);
   // Add person name table to Cases sheet (at the top)
   const firstPersonData: Person | undefined = Array.from(personDataByPersonId.values())[0];
   if (firstPersonData) {
@@ -457,7 +474,26 @@ async function main(workbook: ExcelScript.Workbook) {
         return a.sortPriority - b.sortPriority;
       }
 
-      // Within same priority, sort by disposition date (oldest first)
+      // Second sort by debt status (cases with debt > $0 first)
+      const getHasDebt = (caseData: ProcessedCase): boolean => {
+        const finance = financialDataByDocket.get(caseData.docketNo || "");
+        if (finance && finance.balance) {
+          const cleanBalance = String(finance.balance).replace(/[$,\s]/g, "").trim();
+          const numericBalance = parseFloat(cleanBalance);
+          return !isNaN(numericBalance) && numericBalance > 0;
+        }
+        return false;
+      };
+      
+      const aHasDebt = getHasDebt(a);
+      const bHasDebt = getHasDebt(b);
+      
+      if (aHasDebt !== bHasDebt) {
+        // Cases with debt come first (return -1), cases without debt go to bottom (return 1)
+        return aHasDebt ? -1 : 1;
+      }
+
+      // Within same priority and debt status, sort by disposition date (oldest first)
       const dateA = parseDispositionDate(a.dispDt);
       const dateB = parseDispositionDate(b.dispDt);
       return dateA.getTime() - dateB.getTime();
@@ -508,6 +544,19 @@ async function main(workbook: ExcelScript.Workbook) {
     }
   }
 
+  // Add Total Records table at E1:E2
+  const totalRecords = caseRow - 5; // Subtract 5 because caseRow started at 5
+  casesSheet.getRange("E1").setValue("Total Records");
+  casesSheet.getRange("E2").setValue(totalRecords);
+  
+  // Format Total Records table
+  casesSheet.getRange("E1").getFormat().getFont().setBold(true);
+  casesSheet.getRange("E1").getFormat().getFill().setColor("#DDEEFF"); // Blue header
+  casesSheet.getRange("E1").getFormat().getFont().setSize(16);
+  
+  casesSheet.getRange("E2").getFormat().getFill().setColor("#FFFFCC"); // Yellow value
+  casesSheet.getRange("E2").getFormat().getFont().setSize(16);
+
   // Format cases sheet - only specific header ranges get blue color
   const casesHeaderRange1 = casesSheet.getRange("A1:C1"); // Person name headers
   casesHeaderRange1.getFormat().getFont().setBold(true);
@@ -523,5 +572,17 @@ async function main(workbook: ExcelScript.Workbook) {
   casesSheet.getUsedRange().getFormat().getFont().setSize(16);
   casesSheet.getUsedRange().getFormat().autofitColumns();
 
-  console.log("✅ Done! Cases are grouped by Person ID, deduplicated, and sorted by priority and disposition date.");
+  const outputProcessingTime = Date.now() - phaseStartTime;
+  const totalScriptTime = Date.now() - scriptStartTime;
+  const totalDockets = inputData.length + missingFinancialDockets.length;
+  const avgOverallTime = totalDockets > 0 ? Math.round(totalScriptTime / totalDockets) : 0;
+  
+  console.log(`✅ Done! Cases are grouped by Person ID, deduplicated, and sorted by priority and disposition date.`);
+  console.log(`📊 Performance Summary:`);
+  console.log(`   ⏱️ Total execution time: ${Math.round(totalScriptTime / 1000)}s`);
+  console.log(`   📋 Initial processing: ${Math.round(initialProcessingTime / 1000)}s`);
+  console.log(`   💰 Financial data: ${Math.round(financialProcessingTime / 1000)}s`);
+  console.log(`   📝 Output generation: ${Math.round(outputProcessingTime / 1000)}s`);
+  console.log(`   🚀 Overall rate: ${avgOverallTime}ms per docket`);
+  console.log(`   🏁 Completed at ${new Date().toLocaleTimeString()}`);
 }
