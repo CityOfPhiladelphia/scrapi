@@ -9,6 +9,7 @@
     "watch": "tsc -w",
     "deploy:sandbox": "cdk deploy --all --profile SandboxDevelopers --require-approval never",
     "deploy:personal": "cdk deploy --all --profile personal --require-approval never",
+    "deploy:scrapi": "cdk deploy --all --profile scrapi --require-approval never",
     "destroy": "cdk destroy"
   },
   "dependencies": {

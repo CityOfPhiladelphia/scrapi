@@ -176,7 +176,7 @@ async function main(workbook: ExcelScript.Workbook) {
   const scriptStartTime = Date.now();
   let phaseStartTime = scriptStartTime;
   
-  console.log(`🚀 Script started at ${new Date().toLocaleTimeString()}`);
+  console.log(`Script started at ${new Date().toLocaleTimeString()}`);
   
   const apiSummaryUrl = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/summary";
   const apiDocketUrl = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod/usjs/v1/docket";
@@ -236,7 +236,7 @@ async function main(workbook: ExcelScript.Workbook) {
   const setupTime = Date.now() - phaseStartTime;
   phaseStartTime = Date.now();
   
-  console.log(`📋 Processing ${inputData.length} docket numbers for identifier: ${personIdValue} (setup: ${setupTime}ms)`);
+  console.log(`Processing ${inputData.length} docket numbers for identifier: ${personIdValue} (setup: ${setupTime}ms)`);
 
   // Create or get sheets
   let casesSheet = workbook.getWorksheet("Cases") || workbook.addWorksheet("Cases");
@@ -352,7 +352,7 @@ async function main(workbook: ExcelScript.Workbook) {
   const avgTimePerDocket = processingStats.successCount > 0 ? Math.round(initialProcessingTime / processingStats.successCount) : 0;
   phaseStartTime = Date.now();
   
-  console.log(`📋 Processing complete: ${processingStats.successCount}/${inputData.length} successful (${Math.round(initialProcessingTime / 1000)}s total, ${avgTimePerDocket}ms avg/docket)`);
+  console.log(`Processing complete: ${processingStats.successCount}/${inputData.length} successful (${Math.round(initialProcessingTime / 1000)}s total, ${avgTimePerDocket}ms avg/docket)`);
   if (processingStats.validationErrors.length > 0) {
     console.log(`❌ ${processingStats.validationErrors.length} validation errors`);
   }
@@ -364,7 +364,7 @@ async function main(workbook: ExcelScript.Workbook) {
   }
 
   // Collect all unique docket numbers from case results and fetch missing financial data
-  console.log("🔍 Collecting additional financial data for discovered dockets...");
+  console.log("Collecting additional financial data for discovered dockets...");
   const allDiscoveredDockets = new Set<string>();
   
   // Collect all docket numbers from case results
@@ -384,7 +384,7 @@ async function main(workbook: ExcelScript.Workbook) {
     }
   }
 
-  console.log(`📊 Found ${missingFinancialDockets.length} additional dockets needing financial data`);
+  console.log(`Found ${missingFinancialDockets.length} additional dockets needing financial data`);
 
   // Track financial data fetch statistics
   let financialSuccessCount = 0;
@@ -431,7 +431,7 @@ async function main(workbook: ExcelScript.Workbook) {
   const avgFinancialTime = missingFinancialDockets.length > 0 ? Math.round(financialProcessingTime / missingFinancialDockets.length) : 0;
   phaseStartTime = Date.now();
   
-  console.log(`💰 Financial data collection complete. Success: ${financialSuccessCount}, Errors: ${financialErrorCount}, Total: ${financialDataByDocket.size} (${Math.round(financialProcessingTime / 1000)}s total, ${avgFinancialTime}ms avg/docket)`);
+  console.log(`Financial data collection complete. Success: ${financialSuccessCount}, Errors: ${financialErrorCount}, Total: ${financialDataByDocket.size} (${Math.round(financialProcessingTime / 1000)}s total, ${avgFinancialTime}ms avg/docket)`);
   // Add person name table to Cases sheet (at the top)
   const firstPersonData: Person | undefined = Array.from(personDataByPersonId.values())[0];
   if (firstPersonData) {
@@ -452,6 +452,18 @@ async function main(workbook: ExcelScript.Workbook) {
     
     // Apply yellow highlight to the person name values row
     casesSheet.getRange("A2:C2").getFormat().getFill().setColor("#FFFFCC"); // Same yellow as high priority cases
+    
+    // Add DoB table at D1:D2
+    casesSheet.getRange("D1").setValue("Date of Birth");
+    casesSheet.getRange("D2").setValue(firstPersonData.dob || "");
+    
+    // Format DoB table to match other tables
+    casesSheet.getRange("D1").getFormat().getFont().setBold(true);
+    casesSheet.getRange("D1").getFormat().getFill().setColor("#DDEEFF"); // Blue header
+    casesSheet.getRange("D1").getFormat().getFont().setSize(16);
+    
+    casesSheet.getRange("D2").getFormat().getFill().setColor("#FFFFCC"); // Yellow value
+    casesSheet.getRange("D2").getFormat().getFont().setSize(16);
   }
 
   // Process and write Cases (grouped, deduplicated, sorted)
@@ -563,6 +575,11 @@ async function main(workbook: ExcelScript.Workbook) {
   casesHeaderRange1.getFormat().getFill().setColor("#DDEEFF"); // blue
   casesHeaderRange1.getFormat().getFont().setSize(16);
   
+  const casesHeaderRangeDoB = casesSheet.getRange("D1"); // DoB header
+  casesHeaderRangeDoB.getFormat().getFont().setBold(true);
+  casesHeaderRangeDoB.getFormat().getFill().setColor("#DDEEFF"); // blue
+  casesHeaderRangeDoB.getFormat().getFont().setSize(16);
+  
   const casesHeaderRange2 = casesSheet.getRange("A4:L4"); // Cases table headers  
   casesHeaderRange2.getFormat().getFont().setBold(true);
   casesHeaderRange2.getFormat().getFill().setColor("#DDEEFF"); // blue
@@ -578,11 +595,11 @@ async function main(workbook: ExcelScript.Workbook) {
   const avgOverallTime = totalDockets > 0 ? Math.round(totalScriptTime / totalDockets) : 0;
   
   console.log(`✅ Done! Cases are grouped by Person ID, deduplicated, and sorted by priority and disposition date.`);
-  console.log(`📊 Performance Summary:`);
-  console.log(`   ⏱️ Total execution time: ${Math.round(totalScriptTime / 1000)}s`);
-  console.log(`   📋 Initial processing: ${Math.round(initialProcessingTime / 1000)}s`);
-  console.log(`   💰 Financial data: ${Math.round(financialProcessingTime / 1000)}s`);
-  console.log(`   📝 Output generation: ${Math.round(outputProcessingTime / 1000)}s`);
-  console.log(`   🚀 Overall rate: ${avgOverallTime}ms per docket`);
-  console.log(`   🏁 Completed at ${new Date().toLocaleTimeString()}`);
+  console.log(`Performance Summary:`);
+  console.log(`   Total execution time: ${Math.round(totalScriptTime / 1000)}s`);
+  console.log(`   Initial processing: ${Math.round(initialProcessingTime / 1000)}s`);
+  console.log(`   Financial data: ${Math.round(financialProcessingTime / 1000)}s`);
+  console.log(`   Output generation: ${Math.round(outputProcessingTime / 1000)}s`);
+  console.log(`   Overall rate: ${avgOverallTime}ms per docket`);
+  console.log(`   Completed at ${new Date().toLocaleTimeString()}`);
 }
