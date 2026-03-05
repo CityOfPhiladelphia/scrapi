@@ -713,14 +713,3 @@ async function main(workbook: ExcelScript.Workbook): Promise<void> {
     errors.forEach(error => console.log(`  • ${error}`));
   }
 }
-
-//*** INSUFFICIENT RESOURCES ***
-//works, just very very very SLOWWW
-//can we add a db?
-//MJ are a very special case (alignment issues), and do not appear in CP/MC searches
-//  ^^-- needs a special parser(docket sheet data won't load; sometimes summary): Bad Request: Docket Sheet does not contain a zip code
-//address a few lingering alignment issues on regular dockets
-//separate aliases by, not ; (may confuse regex pattern)
-//omit real name from aliases
-//address MI issue
-//remove all emojis
