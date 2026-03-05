@@ -343,10 +343,10 @@ function getRepresentationType(cases: Case[] | undefined, docketNum: string): st
       return "Private attorney";
     }
     if (attorneyInfo.includes('pro se') || attorneyInfo.includes('self represented')) {
-      return "NA, not a case from defenders, AOPC, GVI, or P3";
+      return "Blank ";
     }
 
-    return "NA, not a case from defenders, AOPC, GVI, or P3";
+    return "Blank ";
   }
 
   // Parse the structured format:
@@ -370,11 +370,11 @@ function getRepresentationType(cases: Case[] | undefined, docketNum: string): st
     return "Private attorney";
   }
   if (representationTypeLine.includes('pro se') || representationTypeLine.includes('self')) {
-    return "NA, not a case from defenders, AOPC, GVI, or P3";
+    return "Blank ";
   }
 
   // If we have a structured format but can't categorize the type
-  return "NA, not a case from defenders, AOPC, GVI, or P3";
+  return "Blank ";
 }
 
 // sheets
@@ -398,7 +398,7 @@ class SheetPopulator {
     this.setCell(columns.first_name, person.firstName || "");
     this.setCell(columns.middle_name, person.middleName || "");
     this.setCell(columns.last_name, person.lastName || "");
-    this.setCell(columns.aliases, (person.aliases || []).join("; "));
+    this.setCell(columns.aliases, (person.aliases || []).join(", "));
     this.setCellWithFormat(columns.dob, person.dob || "", date_format);
     this.setCell(columns.race, person.race || "");
     this.setCell(columns.sex, person.sex || "");
@@ -442,7 +442,13 @@ class SheetPopulator {
     this.setCell(columns.has_warrant, warrantStatus);
 
     // Representation type
-    const representationType = financial?.representationType || getRepresentationType(financial?.cases, docketNum);
+    let representationType = financial?.representationType || getRepresentationType(financial?.cases, docketNum);
+    
+    // Override old API responses with "Blank " 
+    if (representationType && representationType.includes('NA, not a case from defenders')) {
+      representationType = "Blank ";
+    }
+    
     this.setCell(columns.representation_type, representationType);
 
     // Next action docket
@@ -486,7 +492,7 @@ class SheetPopulator {
     this.setCell(columns.disposition, "");
     this.setCell(columns.grades, "");
     this.setCell(columns.has_sentence, "");
-    this.setCell(columns.dispositon_date, "");
+    this.setCellWithFormat(columns.dispositon_date, "", date_format);
     this.setCell(columns.has_warrant, "");
     this.setCell(columns.representation_type, "");
     this.setCell(columns.next_action_docket, "");

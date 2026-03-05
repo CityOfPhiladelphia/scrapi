@@ -116,6 +116,46 @@ function validateDocketNumber(docketNum: string): { isValid: boolean; errorMessa
   return { isValid: true };
 }
 
+// Simple same person validation - exits immediately on mismatch
+function validateSamePerson(referencePerson: Person, currentPerson: Person, docketNum: string, inputSheet: ExcelScript.Worksheet): void {
+  // Check critical identifying fields
+  if (referencePerson.dob && currentPerson.dob && referencePerson.dob !== currentPerson.dob) {
+    // Highlight the offending docket cell in pale red
+    highlightOffendingDocket(inputSheet, docketNum);
+    console.log(`❌ ERROR: Docket # ${docketNum} does not belong to participant.`);
+    console.log(`   Date of Birth mismatch: "${referencePerson.dob}" vs "${currentPerson.dob}"`);
+    throw new Error(`Docket # ${docketNum} does not belong to participant`);
+  }
+  
+  if (referencePerson.lastName && currentPerson.lastName && referencePerson.lastName !== currentPerson.lastName) {
+    // Highlight the offending docket cell in pale red
+    highlightOffendingDocket(inputSheet, docketNum);
+    console.log(`❌ ERROR: Docket # ${docketNum} does not belong to participant.`);
+    console.log(`   Last Name mismatch: "${referencePerson.lastName}" vs "${currentPerson.lastName}"`);
+    throw new Error(`Docket # ${docketNum} does not belong to participant`);
+  }
+}
+
+// Highlight the cell containing the offending docket number
+function highlightOffendingDocket(inputSheet: ExcelScript.Worksheet, docketNum: string): void {
+  // Search for the docket number in the range E7:E100
+  const docketRange = inputSheet.getRange("E7:E100");
+  const values = docketRange.getValues();
+  
+  for (let i = 0; i < values.length; i++) {
+    const cellValue = String(values[i][0]).trim();
+    if (cellValue === docketNum) {
+      const rowNumber = 7 + i; // E7 is row 7, so add i to get the actual row
+      const cellAddress = `E${rowNumber}`;
+      
+      // Apply translucent pale red highlighting
+      inputSheet.getRange(cellAddress).getFormat().getFill().setColor("#FFE6E6"); // Pale red
+      console.log(`   Highlighted offending docket in cell ${cellAddress}`);
+      break;
+    }
+  }
+}
+
 // Check if a case has eligible (conviction-like) disposition
 function isEligibleDisposition(caseData: Case): boolean {
   if (!caseData.charges || caseData.charges.length === 0) {
@@ -206,6 +246,10 @@ async function main(workbook: ExcelScript.Workbook) {
   
   inputSheet.getRange("E3:E6").getFormat().autofitColumns();
 
+  // Reset any previous error highlighting in docket input cells
+  const docketInputRange = inputSheet.getRange("E7:E100");
+  docketInputRange.getFormat().getFill().clear();
+
   // Read Unique Identifier from E4 and Docket Numbers from E7:E100
   const personIdValue = String(inputSheet.getRange("E4").getValue()).trim();
   const docketNumValues = inputSheet.getRange("E7:E100").getValues();
@@ -264,87 +308,99 @@ async function main(workbook: ExcelScript.Workbook) {
   };
 
   // Process each input docket number
-  for (const input of inputData) {
-    const { personId, docketNum } = input;
+  try {
+    for (const input of inputData) {
+      const { personId, docketNum } = input;
 
-    // Validate inputs
-    const personIdValidation = validatePersonId(personId);
-    const docketValidation = validateDocketNumber(docketNum);
+      // Validate inputs
+      const personIdValidation = validatePersonId(personId);
+      const docketValidation = validateDocketNumber(docketNum);
 
-    if (!personIdValidation.isValid) {
-      processingStats.validationErrors.push(`Person ID: ${personIdValidation.errorMessage}`);
-      continue;
-    }
-
-    if (!docketValidation.isValid) {
-      processingStats.validationErrors.push(`Docket ${docketNum}: ${docketValidation.errorMessage}`);
-      continue;
-    }
-
-    // Fetch summary data
-    const response = await fetch(`${apiSummaryUrl}?docketNum=${encodeURIComponent(docketNum)}`, {
-      method: 'GET'
-    });
-
-    if (!response.ok) {
-      processingStats.fetchErrors.push(`Failed to fetch summary for ${docketNum}`);
-      continue;
-    }
-
-    const data: ApiResponse | null = await response.json().catch((error) => {
-      processingStats.processingErrors.push(`${personId}/${docketNum}: JSON parse error - ${error}`);
-      return null;
-    });
-
-    if (!data) {
-      continue;
-    }
-
-    processingStats.successCount++;
-
-    // Store person data only from the first docket (for consistency)
-    if (data.person && !personDataByPersonId.has(personId)) {
-      personDataByPersonId.set(personId, data.person);
-    }
-
-      // Process cases
-      if (data.cases && data.cases.length > 0) {
-        if (!allCasesByPersonId.has(personId)) {
-          allCasesByPersonId.set(personId, []);
-        }
-
-        for (const caseData of data.cases) {
-          const isEligible = isEligibleDisposition(caseData);
-          const processedCase: ProcessedCase = {
-            ...caseData,
-            personId,
-            originalDocketSearched: docketNum,
-            isEligibleDisposition: isEligible,
-            sortPriority: isEligible ? 1 : 2
-          };
-
-          allCasesByPersonId.get(personId)!.push(processedCase);
-        }
+      if (!personIdValidation.isValid) {
+        processingStats.validationErrors.push(`Person ID: ${personIdValidation.errorMessage}`);
+        continue;
       }
 
-      // Fetch financial data
-      const financeRes = await fetch(`${apiDocketUrl}?docketNum=${encodeURIComponent(docketNum)}`, {
+      if (!docketValidation.isValid) {
+        processingStats.validationErrors.push(`Docket ${docketNum}: ${docketValidation.errorMessage}`);
+        continue;
+      }
+
+      // Fetch summary data
+      const response = await fetch(`${apiSummaryUrl}?docketNum=${encodeURIComponent(docketNum)}`, {
         method: 'GET'
       });
 
-      if (financeRes.ok) {
-        const finance: FinancialResponse = await financeRes.json();
-        financialDataByDocket.set(docketNum, finance);
-
-        // Store URL data
-        urlDataByDocket.set(docketNum, {
-          summaryUrl: data.summaryUrl || "",
-          docketUrl: finance.docketUrl || ""
-        });
+      if (!response.ok) {
+        processingStats.fetchErrors.push(`Failed to fetch summary for ${docketNum}`);
+        continue;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 150)); // throttle
+      const data: ApiResponse | null = await response.json().catch((error) => {
+        processingStats.processingErrors.push(`${personId}/${docketNum}: JSON parse error - ${error}`);
+        return null;
+      });
 
+      if (!data) {
+        continue;
+      }
+
+      processingStats.successCount++;
+
+      // Store and validate person data
+      if (data.person) {
+        if (!personDataByPersonId.has(personId)) {
+          // First docket - store as reference
+          personDataByPersonId.set(personId, data.person);
+        } else {
+          // Subsequent dockets - validate against reference
+          const referencePerson = personDataByPersonId.get(personId)!;
+          validateSamePerson(referencePerson, data.person, docketNum, inputSheet);
+        }
+      }
+
+        // Process cases
+        if (data.cases && data.cases.length > 0) {
+          if (!allCasesByPersonId.has(personId)) {
+            allCasesByPersonId.set(personId, []);
+          }
+
+          for (const caseData of data.cases) {
+            const isEligible = isEligibleDisposition(caseData);
+            const processedCase: ProcessedCase = {
+              ...caseData,
+              personId,
+              originalDocketSearched: docketNum,
+              isEligibleDisposition: isEligible,
+              sortPriority: isEligible ? 1 : 2
+            };
+
+            allCasesByPersonId.get(personId)!.push(processedCase);
+          }
+        }
+
+        // Fetch financial data
+        const financeRes = await fetch(`${apiDocketUrl}?docketNum=${encodeURIComponent(docketNum)}`, {
+          method: 'GET'
+        });
+
+        if (financeRes.ok) {
+          const finance: FinancialResponse = await financeRes.json();
+          financialDataByDocket.set(docketNum, finance);
+
+          // Store URL data
+          urlDataByDocket.set(docketNum, {
+            summaryUrl: data.summaryUrl || "",
+            docketUrl: finance.docketUrl || ""
+          });
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 150)); // throttle
+    }
+  } catch (error) {
+    // Same person validation failed - exit immediately
+    console.log(`❌ Script terminated: ${error}`);
+    return;
   }
 
   // Log processing summary with timing
