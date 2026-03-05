@@ -3,6 +3,7 @@ import assert from 'assert';
 import { pdf } from '../../../_parsers/pdf.js';
 import { USJS_PDF_PATH } from '../../../consts.js';
 import { FileType } from '../types.js';
+import { PA_COUNTIES } from './slices.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 
 /** Extract zipcode from address line */
@@ -153,10 +154,33 @@ const extractCaseStatus = (text: string[]): string => {
     .split(/\s+/)[0];
 };
 
-/** Extract county field */
+/** Fallback county extraction from document header */
+const fallbackCountyFromHeader = (text: string[]): string => {
+  // Search document header (first 15 lines typically contain court metadata)
+  for (let i = 0; i < Math.min(15, text.length); i++) {
+    const line = text[i].toLowerCase();
+    
+    for (const county of PA_COUNTIES) {
+      if (line.includes(county.toLowerCase())) {
+        return county;
+      }
+    }
+  }
+  
+  return ''; // Return empty if no county found
+};
+
+/** Extract county field with fallback for edge cases */
 const extractCounty = (text: string[]): string => {
   const [countyLine] = text.filter((line) => { return line.match(/.*County:.*/) });
-  return countyLine ? countyLine.split('County:')[1]?.trim()?.split(/\s+/)[0] : '';
+  let county = countyLine ? countyLine.split('County:')[1]?.trim()?.split(/\s+/)[0] : '';
+  
+  // Handle edge cases: empty, pipes, or whitespace only
+  if (!county || /^\s*\|\s*$/.test(county)) {
+    county = fallbackCountyFromHeader(text);
+  }
+  
+  return county;
 };
 
 /** Extract defense attorney and representation type */

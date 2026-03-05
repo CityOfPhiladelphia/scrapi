@@ -1,13 +1,27 @@
 /** Array slicing utilities for PDF parsing */
 import type { SliceProps } from '../types.js';
 
+/** Pennsylvania counties list */
+export const PA_COUNTIES = [
+  'Philadelphia', 'Montgomery', 'Bucks', 'Delaware', 'Chester', 'Berks', 
+  'Lancaster', 'York', 'Dauphin', 'Allegheny', 'Westmoreland', 'Washington', 
+  'Fayette', 'Greene', 'Beaver', 'Butler', 'Armstrong', 'Indiana', 'Jefferson', 
+  'Clarion', 'Venango', 'Crawford', 'Erie', 'Warren', 'McKean', 'Potter', 
+  'Tioga', 'Bradford', 'Susquehanna', 'Wayne', 'Pike', 'Monroe', 'Carbon', 
+  'Northampton', 'Lehigh', 'Schuylkill', 'Lebanon', 'Luzerne', 'Lackawanna', 
+  'Wyoming', 'Sullivan', 'Columbia', 'Montour', 'Snyder', 'Union', 
+  'Northumberland', 'Lycoming', 'Clinton', 'Centre', 'Clearfield', 'Cambria', 
+  'Blair', 'Huntingdon', 'Mifflin', 'Juniata', 'Perry', 'Cumberland', 
+  'Adams', 'Franklin', 'Fulton', 'Bedford'
+] as const;
+
 /** Reducer for finding docket number boundaries */
 export const docketIndex = (acc: number[], line: string, idx: number): number[] => {
   const docket = /([A-Z]+-\d+-[A-Z]+-\d+-\d+)/;
   const docketMatch = line.match(docket);
   
-  // Also detect county names that start new cases
-  const countyPattern = /^\|(Philadelphia|Montgomery|Bucks|Delaware|Chester|Berks|Lancaster|York|Dauphin|Allegheny|Westmoreland|Washington|Fayette|Greene|Beaver|Butler|Armstrong|Indiana|Jefferson|Clarion|Venango|Crawford|Erie|Warren|McKean|Potter|Tioga|Bradford|Susquehanna|Wayne|Pike|Monroe|Carbon|Northampton|Lehigh|Schuylkill|Lebanon|Luzerne|Lackawanna|Wyoming|Sullivan|Columbia|Montour|Snyder|Union|Northumberland|Lycoming|Clinton|Centre|Clearfield|Cambria|Blair|Huntingdon|Mifflin|Juniata|Perry|Cumberland|Adams|Franklin|Fulton|Bedford)$/;
+  // Create county pattern dynamically from PA_COUNTIES array
+  const countyPattern = new RegExp(`^\\|(${PA_COUNTIES.join('|')})$`);
   const countyMatch = line.match(countyPattern);
 
   if (docketMatch || countyMatch) {
