@@ -6,6 +6,7 @@ import { serialize } from './serialize.js';
 export enum USJSRoute { 
     Summary = '/usjs/v1/summary',
     Docket = '/usjs/v1/docket',
+    PersonSearch = '/usjs/v1/person',
 };
 
 
@@ -28,5 +29,13 @@ export const usjs = () => {
         validate.parameters(['docketNum']),
         scrape.docket,
         serialize.docket
+    ])
+    
+    // Person Search by Name and DOB
+    const personSearch = router.path(USJSRoute.PersonSearch);
+    personSearch.get([
+        validate.parameters(['firstName', 'lastName', 'dob']),
+        scrape.personSearch,
+        serialize.personSearch
     ])
 }

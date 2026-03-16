@@ -42,6 +42,7 @@ export enum Case {
     ProcStatus = 'procStatus',
     DCNum = 'dcNo',
     OTN = 'otn',
+    PID = 'pid',
     ArrestDate = 'arrestDt',
     DispositionDate = 'dispDt',
     DispositionJudge = 'dispJudge',
@@ -55,6 +56,7 @@ export type CourtCase = {
     [Case.ProcStatus]: string,
     [Case.DCNum]: string,
     [Case.OTN]: string,
+    [Case.PID]: string,
     [Case.ArrestDate]: string,
     [Case.DispositionDate]: string,
     [Case.DispositionJudge]: string,
@@ -93,6 +95,21 @@ export type SerializedSummary = {
     };
     cases: CourtCase[];
     summaryUrl?: string | null;
+};
+
+export type PersonSearchResult = {
+    searchCriteria: {
+        firstName: string;
+        lastName: string;
+        dob: string;
+    };
+    foundCases: Array<{
+        docketNumber: string;
+        filingDate: string;
+        otn: string;
+        pid: string;
+    }>;
+    totalCount: number;
 };
 
 /** Key-value matching parameters for regex extraction */
