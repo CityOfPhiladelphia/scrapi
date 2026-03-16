@@ -159,8 +159,8 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
       console.log('No results table found, assuming no matches');
     }
 
-    // Find all table rows with docket number patterns
-    const docketPattern = /(CP|MC|MD|MJ|SU)-\d{2}-[A-Z]{2}-\d{7}-\d{4}|\d{7}-\d{4}/;
+    // Find all table rows with docket number patterns - updated for magistrate format
+    const docketPattern = /(CP|MC|MD|SU)-\d{2}-[A-Z]{2}-\d{7}-\d{4}|MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}/;
     const rows = page.locator('tr');
     const rowCount = await rows.count();
     
@@ -176,18 +176,41 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
         const docketNumber = docketMatch[0];
         console.log(`Found docket number: ${docketNumber}`);
         
-        // Extract additional data from the row
-        const otnMatch = rowText.match(/OTN:\s*([A-Z]\s?\d+\s?\d+\s?\d+)/);
-        const pidMatch = rowText.match(/PID:\s*([A-Z]\d+)/);
+        // Extract additional data from the row with more flexible patterns
+        let otn = '';
+        let filingDate = '';
         
-        // Extract filing date (look for date patterns - MM/DD/YYYY)
-        const dateMatch = rowText.match(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/);
+        // Try multiple OTN patterns
+        let otnMatch = rowText.match(/OTN:\s*([A-Z]\s?\d+\s?\d+\s?\d+)/);
+        if (!otnMatch) {
+          otnMatch = rowText.match(/OTN\s+([A-Z]\d+)/);
+        }
+        if (!otnMatch) {
+          otnMatch = rowText.match(/([A-Z]\d{8,})/); // Generic pattern for OTN-like codes
+        }
+        if (otnMatch) {
+          otn = otnMatch[1].replace(/\s+/g, '');
+        }
+        
+        // Try multiple date patterns for filing date
+        let dateMatch = rowText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+        if (!dateMatch) {
+          dateMatch = rowText.match(/(\d{4}-\d{1,2}-\d{1,2})/);
+        }
+        if (!dateMatch) {
+          dateMatch = rowText.match(/(\d{1,2}-\d{1,2}-\d{4})/);
+        }
+        if (dateMatch) {
+          filingDate = dateMatch[1];
+        }
+        
+        console.log(`Row text for debugging: "${rowText}"`);
+        console.log(`Extracted - OTN: "${otn}", Filing Date: "${filingDate}"`);
         
         const caseData = {
           docketNumber,
-          filingDate: dateMatch ? dateMatch[1] : '',
-          otn: otnMatch ? otnMatch[1].replace(/\s+/g, '') : '',
-          pid: pidMatch ? pidMatch[1] : ''
+          filingDate,
+          otn
         };
         
         console.log(`Extracted case data:`, caseData);

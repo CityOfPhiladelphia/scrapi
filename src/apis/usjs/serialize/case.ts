@@ -13,7 +13,6 @@ export const caseMatchers = (lines: string[]) => {
     [Case.ProcStatus]: () => keyValueMatch({ line: lines[0] || '', regex: /Proc Status:\s+(.+?)(?=DC No:|$)/ }),
     [Case.DCNum]: () => keyValueMatch({ line: lines[0] || '', regex: /DC No:\s*(\d{10})/ }),
     [Case.OTN]: () => keyValueMatch({ line: lines[0] || '', regex: /OTN:([A-Z]\s*\d+-\d+)/ }),
-    [Case.PID]: () => keyValueMatch({ line: lines[0] || '', regex: /PID:\s*([A-Z]\d+)/ }),
     [Case.ArrestDate]: () => keyValueMatch({ line: lines[1] || '', regex: /Arrest Dt:\s+(\d{2}\/\d{2}\/\d{4})/ }),
     [Case.DispositionDate]: () => {
       // Search the first 6 lines for disposition date pattern
@@ -48,7 +47,6 @@ export const cases = (lines: string[]): CourtCase => {
     [Case.ProcStatus]: info[Case.ProcStatus](),
     [Case.DCNum]: info[Case.DCNum](),
     [Case.OTN]: info[Case.OTN](),
-    [Case.PID]: info[Case.PID](),
     [Case.ArrestDate]: info[Case.ArrestDate](),
     [Case.DispositionDate]: info[Case.DispositionDate](),
     [Case.DispositionJudge]: info[Case.DispositionJudge](),

@@ -42,7 +42,6 @@ export enum Case {
     ProcStatus = 'procStatus',
     DCNum = 'dcNo',
     OTN = 'otn',
-    PID = 'pid',
     ArrestDate = 'arrestDt',
     DispositionDate = 'dispDt',
     DispositionJudge = 'dispJudge',
@@ -56,7 +55,6 @@ export type CourtCase = {
     [Case.ProcStatus]: string,
     [Case.DCNum]: string,
     [Case.OTN]: string,
-    [Case.PID]: string,
     [Case.ArrestDate]: string,
     [Case.DispositionDate]: string,
     [Case.DispositionJudge]: string,
@@ -107,7 +105,6 @@ export type PersonSearchResult = {
         docketNumber: string;
         filingDate: string;
         otn: string;
-        pid: string;
     }>;
     totalCount: number;
 };
