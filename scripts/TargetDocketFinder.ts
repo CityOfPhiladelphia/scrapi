@@ -22,6 +22,38 @@ interface ParticipantData {
   dateOfBirth: string;
 }
 
+// Generational suffixes to remove from participant's last name for better search results
+const GENERATIONAL_SUFFIXES = [
+    // Numeric
+    'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
+    // Ordinal
+    '1ST', '2ND', '3RD', '4TH', '5TH',
+    // Relational
+    'JR', 'JR.', 'JUNIOR',
+    'SR', 'SR.', 'SENIOR',
+    // Other suffixes that show up in court records
+    'ESQ', 'ESQ.', // esquire - lawyers sometimes appear this way
+] as const;
+
+/**
+ * Remove generational suffixes from a last name
+ */
+function removeSuffixes(name: string): string {
+  if (!name) return name;
+  
+  let cleanedName = name.toUpperCase().trim();
+  
+  // Remove each suffix if found
+  for (const suffix of GENERATIONAL_SUFFIXES) {
+    // Remove suffix at end with optional comma and space
+    const suffixPattern = new RegExp(`\\s*,?\\s*${suffix.replace('.', '\\.')}$`, 'i');
+    cleanedName = cleanedName.replace(suffixPattern, '');
+  }
+  
+  // Return with original case preserved for first letter
+  return cleanedName.charAt(0) + cleanedName.slice(1).toLowerCase();
+}
+
 async function main(workbook: ExcelScript.Workbook): Promise<void> {
     try {
         const participantData = readParticipantData(workbook);
@@ -109,8 +141,12 @@ function convertDobFormat(dobString: string): string {
 
 async function findTargetDocket(participantData: ParticipantData, dobForApi: string, workbook: ExcelScript.Workbook): Promise<void> {
   
+  // Clean last name by removing generational suffixes for better search results
+  const cleanedLastName = removeSuffixes(participantData.lastName);
+  console.log(`Name cleaning: "${participantData.lastName}" → "${cleanedLastName}"`);
+  
   const API_BASE_URL = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod";
-  const apiUrl = `${API_BASE_URL}/usjs/v1/person?firstName=${encodeURIComponent(participantData.firstName)}&lastName=${encodeURIComponent(participantData.lastName)}&dob=${dobForApi}`;
+  const apiUrl = `${API_BASE_URL}/usjs/v1/person?firstName=${encodeURIComponent(participantData.firstName)}&lastName=${encodeURIComponent(cleanedLastName)}&dob=${dobForApi}`;
   
   try {
     console.log("About to fetch:", apiUrl);
@@ -152,10 +188,14 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
     console.log(`Found ${data.response.totalCount} dockets`);
     
     // Step 4: Find target docket based on timing criteria
+    console.log("About to call findClosestDocket...");
     const targetDocket = findClosestDocket(data.response.foundCases, participantData);
+    console.log("findClosestDocket completed, result:", targetDocket);
     
     // Step 5: Write target docket to column A (Study Group)
+    console.log("About to call writeTargetToSpreadsheet...");
     writeTargetToSpreadsheet(workbook, targetDocket);
+    console.log("writeTargetToSpreadsheet completed");
     
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -244,19 +284,6 @@ function findClosestDocket(foundCases: Array<{docketNumber: string, filingDate: 
 }
 
 function writeTargetToSpreadsheet(workbook: ExcelScript.Workbook, targetDocket: string): void {
-  const worksheet = workbook.getActiveWorksheet();
-  const selectedRange: ExcelScript.Range | undefined = workbook.getSelectedRange();
-  
-  if (!selectedRange) {
-    return;
-  }
-  
-  // Get the first row of the selection
-  const selectedRow: number = selectedRange.getRowIndex();
-  
-  // Write target docket to column A (Study Group)
-  worksheet.getCell(selectedRow, 0).setValue(targetDocket);
-  
-  // Simple output: just show the target docket
+  // Simple output: just show the target docket (no longer writing to column A)
   console.log(`Target: ${targetDocket}`);
 }
