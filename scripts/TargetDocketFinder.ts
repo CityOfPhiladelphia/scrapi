@@ -14,6 +14,66 @@ interface PersonSearchResponse {
   };
 }
 
+// Real API response structure from working ED_refactor.ts
+interface Person {
+  name?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  address?: string;
+  dob?: string;
+  eyes?: string;
+  hair?: string;
+  race?: string;
+  sex?: string;
+  aliases?: string[];
+}
+
+interface Case {
+  docketNo?: string;
+  procStatus?: string;
+  caseStatus?: string;
+  dcNo?: string;
+  otn?: string;
+  arrestDt?: string;
+  dispDt?: string;
+  dispJudge?: string;
+  defenseAtty?: string;
+  representationType?: string;
+  nextActionDt?: string;
+  charges?: unknown[];
+}
+
+interface SummaryResponse {
+  person?: Person;
+  cases?: Case[];
+  summaryUrl?: string;
+}
+
+interface FinancialResponse {
+  zipcode?: string;
+  balance?: string;
+  assessment?: string;
+  payments?: string;
+  adjustments?: string;
+  nonmonetary?: string;
+  casestatus?: string;
+  representationType?: string;
+  restitutionAmount?: string;
+  restitutionOwedTo?: string;
+  docketUrl?: string;
+}
+
+// For docket endpoint (returns financial + case data)
+interface DocketResponse {
+  zipcode?: string;
+  balance?: string;
+  representationType?: string;
+  person?: Person;
+  cases?: Case[];
+  [key: string]: unknown;
+}
+
 interface ParticipantData {
   cohortStartDate: string;
   cohortEndDate: string;
@@ -139,6 +199,169 @@ function convertDobFormat(dobString: string): string {
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
 
+async function fetchSummaryData(docketNumber: string): Promise<SummaryResponse | null> {
+  const API_BASE_URL = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod";
+  const apiUrl = `${API_BASE_URL}/usjs/v1/summary?docketNum=${encodeURIComponent(docketNumber)}`;
+  
+  try {
+    console.log(`Fetching summary data for: ${docketNumber}`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      console.log(`Summary API error: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    
+    const data: SummaryResponse = await response.json();
+    console.log("Summary data fetched successfully");
+    return data;
+    
+  } catch (error) {
+    console.log("Error fetching summary data:", error);
+    return null;
+  }
+}
+
+async function fetchDocketData(docketNumber: string): Promise<DocketResponse | null> {
+  const API_BASE_URL = "https://ocyjm4kh1i.execute-api.us-east-1.amazonaws.com/prod";
+  const apiUrl = `${API_BASE_URL}/usjs/v1/docket?docketNum=${encodeURIComponent(docketNumber)}`;
+  
+  try {
+    console.log(`Fetching docket data for: ${docketNumber}`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      console.log(`Docket API error: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    
+    const data: DocketResponse = await response.json();
+    console.log("Docket data fetched successfully");
+    return data;
+    
+  } catch (error) {
+    console.log("Error fetching docket data:", error);
+    return null;
+  }
+}
+
+function populateExcelColumns(workbook: ExcelScript.Workbook, summaryData: SummaryResponse | null, docketData: DocketResponse | null): void {
+  console.log("Starting populateExcelColumns function");
+  const worksheet = workbook.getActiveWorksheet();
+  const selectedRange = workbook.getSelectedRange();
+  
+  if (!selectedRange) {
+    console.log("No selected range for populating data");
+    return;
+  }
+  
+  const selectedRow = selectedRange.getRowIndex();
+  console.log(`Working with row: ${selectedRow}`);
+  
+  // Extract data from REAL API responses - prioritize summary over docket data
+  const summaryPerson = summaryData?.person;
+  const docketPerson = docketData?.person;
+  
+  console.log("Summary person available:", !!summaryPerson);
+  console.log("Docket person available:", !!docketPerson);
+  
+  // Helper function to calculate age from DOB
+  function calculateAge(dob: string): number | undefined {
+    if (!dob) return undefined;
+    
+    try {
+      // Parse DOB (assume MM/DD/YYYY or YYYY-MM-DD format)
+      let dobDate: Date;
+      if (dob.includes('/')) {
+        const [month, day, year] = dob.split('/');
+        dobDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      } else {
+        dobDate = new Date(dob);
+      }
+      
+      const today = new Date();
+      const age = today.getFullYear() - dobDate.getFullYear();
+      const monthDiff = today.getMonth() - dobDate.getMonth();
+      
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+        return age - 1;
+      }
+      return age;
+    } catch {
+      return undefined;
+    }
+  }
+  
+  // Populate columns based on available data
+  // Column 8 (I) - Age (calculate from DOB)
+  const dob = summaryPerson?.dob || docketPerson?.dob;
+  const age = calculateAge(dob || "");
+  if (age !== undefined) {
+    worksheet.getCell(selectedRow, 8).setValue(age);
+    console.log(`Set age: ${age} (calculated from DOB: ${dob})`);
+  }
+  
+  // Column 9 (J) - Gender (sex in API)
+  const gender = summaryPerson?.sex || docketPerson?.sex;
+  if (gender) {
+    worksheet.getCell(selectedRow, 9).setValue(gender);
+    console.log(`Set gender: ${gender}`);
+  }
+  
+  // Column 10 (K) - Race
+  const race = summaryPerson?.race || docketPerson?.race;
+  if (race) {
+    worksheet.getCell(selectedRow, 10).setValue(race);
+    console.log(`Set race: ${race}`);
+  }
+  
+  // Column 11 (L) - Hispanic or Latino/a/x? (not in current API structure)
+  // This field may not be available in the current API
+  console.log("Ethnicity field not found in current API structure");
+  
+  // Column 12 (M) - Zip Code
+  const zipCode = docketData?.zipcode || summaryData?.person?.address;
+  if (zipCode) {
+    worksheet.getCell(selectedRow, 12).setValue(zipCode);
+    console.log(`Set zip code: ${zipCode}`);
+  }
+  
+  // Column 28 (AC) - OTN # (from summary/docket responses only)
+  const otn = summaryData?.cases?.[0]?.otn || docketData?.cases?.[0]?.otn;
+  if (otn) {
+    worksheet.getCell(selectedRow, 28).setValue(otn);
+    console.log(`Set OTN: ${otn}`);
+  }
+  
+  console.log("Finished populateExcelColumns function");
+}
+
 async function findTargetDocket(participantData: ParticipantData, dobForApi: string, workbook: ExcelScript.Workbook): Promise<void> {
   
   // Clean last name by removing generational suffixes for better search results
@@ -192,10 +415,35 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
     const targetDocket = findClosestDocket(data.response.foundCases, participantData);
     console.log("findClosestDocket completed, result:", targetDocket);
     
-    // Step 5: Write target docket to column A (Study Group)
+    // Step 5: If we found a valid docket, fetch detailed data and populate Excel
+    if (targetDocket !== "No eligible docket found") {
+      try {
+        // Fetch detailed data from summary and docket endpoints
+        console.log("Fetching additional data for target docket...");
+        const [summaryData, docketData] = await Promise.all([
+          fetchSummaryData(targetDocket),
+          fetchDocketData(targetDocket)
+        ]);
+        console.log("API calls completed");
+        console.log("Summary data:", summaryData ? "received" : "null");
+        console.log("Docket data:", docketData ? "received" : "null");
+        
+        // Populate Excel columns with the fetched data
+        console.log("Populating Excel columns...");
+        populateExcelColumns(workbook, summaryData, docketData);
+        console.log("Excel columns populated successfully");
+      } catch (populateError) {
+        console.log("Error in data fetching or Excel population:", populateError);
+      }
+    } else {
+      console.log("Skipping detailed data fetch - no eligible docket found");
+    }
+    
+    // Step 6: Log the target result
     console.log("About to call writeTargetToSpreadsheet...");
     writeTargetToSpreadsheet(workbook, targetDocket);
     console.log("writeTargetToSpreadsheet completed");
+    console.log("Done.");
     
   } catch (error: unknown) {
     if (error instanceof Error) {
