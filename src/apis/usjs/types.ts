@@ -105,6 +105,8 @@ export type PersonSearchResult = {
         docketNumber: string;
         filingDate: string;
         otn: string;
+        summaryUrl?: string;
+        docketUrl?: string;
     }>;
     totalCount: number;
 };

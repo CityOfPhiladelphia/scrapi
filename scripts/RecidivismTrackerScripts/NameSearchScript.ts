@@ -15,6 +15,8 @@ interface Case {
   otn?: string;
   filingDate?: string;
   status?: string;
+  summaryUrl?: string;
+  docketUrl?: string;
 }
 
 interface PersonSearchResult {
@@ -321,10 +323,10 @@ async function main(workbook: ExcelScript.Workbook) {
     linksSheet.getRange("A2:C2").getFormat().getFont().setSize(16);
     
     // Dockets table headers
-    linksSheet.getRange("A4:C4").setValues([["Docket Number", "Filing Date", "OTN"]]);
-    linksSheet.getRange("A4:C4").getFormat().getFont().setBold(true);
-    linksSheet.getRange("A4:C4").getFormat().getFill().setColor("#DDEEFF"); // Blue header
-    linksSheet.getRange("A4:C4").getFormat().getFont().setSize(16);
+    linksSheet.getRange("A4:E4").setValues([["Docket Number", "Filing Date", "OTN", "Docket", "Court Summary"]]);
+    linksSheet.getRange("A4:E4").getFormat().getFont().setBold(true);
+    linksSheet.getRange("A4:E4").getFormat().getFill().setColor("#DDEEFF"); // Blue header
+    linksSheet.getRange("A4:E4").getFormat().getFont().setSize(16);
     
     // Populate docket data
     let docketRow = 5;
@@ -338,8 +340,37 @@ async function main(workbook: ExcelScript.Workbook) {
         otn = otn.substring(0, 8);
       }
       
+      // Set basic info
       linksSheet.getRange(`A${docketRow}:C${docketRow}`).setValues([[docketNumber, filingDate, otn]]);
-      linksSheet.getRange(`A${docketRow}:C${docketRow}`).getFormat().getFont().setSize(14);
+      
+      // Add Docket link
+      if (caseItem.docketUrl) {
+        linksSheet.getRange(`D${docketRow}`).setHyperlink({
+          address: caseItem.docketUrl,
+          textToDisplay: "Docket PDF"
+        });
+        linksSheet.getRange(`D${docketRow}`).getFormat().getFont().setColor("#0066CC");
+        linksSheet.getRange(`D${docketRow}`).getFormat().getFont().setUnderline(ExcelScript.RangeUnderlineStyle.single);
+      } else {
+        linksSheet.getRange(`D${docketRow}`).setValue("Not Available");
+        linksSheet.getRange(`D${docketRow}`).getFormat().getFont().setColor("#999999");
+      }
+      
+      // Add Court Summary link
+      if (caseItem.summaryUrl) {
+        linksSheet.getRange(`E${docketRow}`).setHyperlink({
+          address: caseItem.summaryUrl,
+          textToDisplay: "Summary PDF"
+        });
+        linksSheet.getRange(`E${docketRow}`).getFormat().getFont().setColor("#0066CC");
+        linksSheet.getRange(`E${docketRow}`).getFormat().getFont().setUnderline(ExcelScript.RangeUnderlineStyle.single);
+      } else {
+        linksSheet.getRange(`E${docketRow}`).setValue("Not Available");
+        linksSheet.getRange(`E${docketRow}`).getFormat().getFont().setColor("#999999");
+      }
+      
+      // Set row font size
+      linksSheet.getRange(`A${docketRow}:E${docketRow}`).getFormat().getFont().setSize(14);
       
       docketRow++;
     }

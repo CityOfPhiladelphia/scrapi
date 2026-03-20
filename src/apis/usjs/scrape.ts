@@ -16,6 +16,56 @@ interface SummaryScrapeParams {
   savePath: string;
 };
 
+// Helper function to get document URLs without downloading
+const getDocumentUrls = async (browserInstance: any, docketNum: string): Promise<{ summaryUrl?: string; docketUrl?: string }> => {
+  const page = browserInstance.page;
+  
+  console.log(`🔗 Getting URLs for docket ${docketNum}`);
+  
+  // Anti-detection: Random delay
+  await page.waitForTimeout(300 + Math.random() * 700);
+  
+  // Find and wait for search control
+  try {
+    const searchControl = page.getByTitle('Search By');
+    await searchControl.waitFor({ timeout: 15000 });
+    await searchControl.selectOption('Docket Number');
+  } catch (error) {
+    console.log(`Failed to find search control for ${docketNum}:`, error);
+    return {};
+  }
+
+  const docketInput = page.getByTitle('Docket Number');
+  await docketInput.fill(docketNum);
+  await page.getByRole('button', { name: 'Search' }).nth(1).click();
+  
+  // Human-like delay after search
+  await page.waitForTimeout(1500 + Math.random() * 1000);
+
+  try {
+    // Find the row with the docket number
+    const docketRow = page.locator(`tr:has-text("${docketNum}")`);
+    
+    // Get both summary and docket links
+    const summaryLink = docketRow.locator(`[href*="/Report/"]`).nth(1); // Summary is index 1
+    const docketLink = docketRow.locator(`[href*="/Report/"]`).nth(0);   // Docket is index 0
+    
+    const summaryHref = await summaryLink.getAttribute('href').catch(() => null);
+    const docketHref = await docketLink.getAttribute('href').catch(() => null);
+    
+    const summaryUrl = summaryHref ? `https://ujsportal.pacourts.us${summaryHref}` : undefined;
+    const docketUrl = docketHref ? `https://ujsportal.pacourts.us${docketHref}` : undefined;
+    
+    console.log(`📄 URLs for ${docketNum} - Summary: ${summaryUrl ? 'Found' : 'Missing'}, Docket: ${docketUrl ? 'Found' : 'Missing'}`);
+    
+    return { summaryUrl, docketUrl };
+    
+  } catch (error) {
+    console.log(`⚠️ Could not get URLs for ${docketNum}:`, error);
+    return {};
+  }
+};
+
 
 const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): Promise<RestAccumulator> => {
   const { docketNum } = acc.data.valid.parameters as Record<string, string> & SummaryScrapeParams;
@@ -219,6 +269,32 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     }
     
     console.log(`✅ Found ${searchResults.length} matching cases for ${firstName} ${lastName}`);
+    
+    // Now get summary and docket URLs for each case
+    console.log(`📋 Fetching PDF URLs for ${searchResults.length} cases...`);
+    
+    for (let i = 0; i < searchResults.length; i++) {
+      const caseData = searchResults[i];
+      try {
+        console.log(`🔍 Getting URLs for docket ${i + 1}/${searchResults.length}: ${caseData.docketNumber}`);
+        const urls = await getDocumentUrls(browserInstance, caseData.docketNumber);
+        
+        // Add URLs to case data
+        caseData.summaryUrl = urls.summaryUrl;
+        caseData.docketUrl = urls.docketUrl;
+        
+        // Small delay between requests to avoid overwhelming the server
+        if (i < searchResults.length - 1) {
+          await page.waitForTimeout(500 + Math.random() * 500); // 500-1000ms between requests
+        }
+        
+      } catch (error) {
+        console.log(`⚠️ Failed to get URLs for ${caseData.docketNumber}:`, error);
+        // Continue with other cases even if one fails
+      }
+    }
+    
+    console.log(`✅ Completed URL fetching for ${searchResults.length} cases`);
     
     // Store results in accumulator in internal field for serializer to process
     acc.data._personSearchData = {
