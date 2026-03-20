@@ -353,11 +353,9 @@ function populateExcelColumns(workbook: ExcelScript.Workbook, summaryData: Summa
   }
   
   // Column 28 (AC) - OTN # (from summary/docket responses only)
-  const otn = summaryData?.cases?.[0]?.otn || docketData?.cases?.[0]?.otn;
-  if (otn) {
-    worksheet.getCell(selectedRow, 28).setValue(otn);
-    console.log(`Set OTN: ${otn}`);
-  }
+  const otn = summaryData?.cases?.[0]?.otn || docketData?.cases?.[0]?.otn || 'N/A';
+  worksheet.getCell(selectedRow, 28).setValue(otn);
+  console.log(`Set OTN: ${otn}`);
   
   console.log("Finished populateExcelColumns function");
 }
