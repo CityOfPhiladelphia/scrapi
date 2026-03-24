@@ -226,32 +226,40 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
         const docketNumber = docketMatch[0];
         console.log(`Found docket number: ${docketNumber}`);
         
-        // Extract additional data from the row with more flexible patterns
+        // Extract data using specific element selectors (more reliable than regex)
         let otn = '';
         let filingDate = '';
         
-        // Try multiple OTN patterns
-        let otnMatch = rowText.match(/OTN:\s*([A-Z]\s?\d+\s?\d+\s?\d+)/);
-        if (!otnMatch) {
-          otnMatch = rowText.match(/OTN\s+([A-Z]\d+)/);
-        }
-        if (!otnMatch) {
-          otnMatch = rowText.match(/([A-Z]\d{8,})/); // Generic pattern for OTN-like codes
-        }
-        if (otnMatch) {
-          otn = otnMatch[1].replace(/\s+/g, '');
+        // Get OTN directly from data-label element
+        try {
+          const otnCell = row.locator('td[data-label="OTN"]');
+          const otnText = await otnCell.textContent();
+          if (otnText && otnText.trim()) {
+            otn = otnText.trim();
+          }
+        } catch (error) {
+          console.log(`Could not find OTN cell for docket ${docketNumber}`);
         }
         
-        // Try multiple date patterns for filing date
-        let dateMatch = rowText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-        if (!dateMatch) {
-          dateMatch = rowText.match(/(\d{4}-\d{1,2}-\d{1,2})/);
-        }
-        if (!dateMatch) {
-          dateMatch = rowText.match(/(\d{1,2}-\d{1,2}-\d{4})/);
-        }
-        if (dateMatch) {
-          filingDate = dateMatch[1];
+        // Get Filing Date directly from data-label element
+        try {
+          const dateCell = row.locator('td[data-label="Filing Date"]');
+          const dateText = await dateCell.textContent();
+          if (dateText && dateText.trim()) {
+            filingDate = dateText.trim();
+          }
+        } catch (error) {
+          // Fallback to regex for filing date
+          let dateMatch = rowText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+          if (!dateMatch) {
+            dateMatch = rowText.match(/(\d{4}-\d{1,2}-\d{1,2})/);
+          }
+          if (!dateMatch) {
+            dateMatch = rowText.match(/(\d{1,2}-\d{1,2}-\d{4})/);
+          }
+          if (dateMatch) {
+            filingDate = dateMatch[1];
+          }
         }
         
         console.log(`Row text for debugging: "${rowText}"`);
@@ -282,11 +290,6 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
         // Add URLs to case data
         caseData.summaryUrl = urls.summaryUrl;
         caseData.docketUrl = urls.docketUrl;
-        
-        // Small delay between requests to avoid overwhelming the server
-        if (i < searchResults.length - 1) {
-          await page.waitForTimeout(500 + Math.random() * 500); // 500-1000ms between requests
-        }
         
       } catch (error) {
         console.log(`⚠️ Failed to get URLs for ${caseData.docketNumber}:`, error);

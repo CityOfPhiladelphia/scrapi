@@ -148,42 +148,34 @@ async function main(workbook: ExcelScript.Workbook) {
   const inputSheet = workbook.getActiveWorksheet();
   inputSheet.setName("Input");
   
-  // Set font size 16 for entire column E
-  inputSheet.getRange("E:E").getFormat().getFont().setSize(16);
+  // Set font size 16 for input area
+  inputSheet.getRange("C:E").getFormat().getFont().setSize(16);
   
-  // First Name input
-  inputSheet.getRange("E3").setValue("First Name");
-  inputSheet.getRange("E3").getFormat().getFont().setBold(true);
-  inputSheet.getRange("E3").getFormat().getFill().setColor("#DDEEFF"); // Light blue for header
-  inputSheet.getRange("E4").getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+  // Create table headers in row 3
+  inputSheet.getRange("C3:E3").setValues([["First Name", "Last Name", "Date of Birth (MM/DD/YYYY)"]]);
+  inputSheet.getRange("C3:E3").getFormat().getFont().setBold(true);
+  inputSheet.getRange("C3:E3").getFormat().getFill().setColor("#DDEEFF"); // Light blue for header
   
-  // Separator
-  inputSheet.getRange("E5").getFormat().getFill().setColor("#D3D3D3"); // Light grey
+  // Highlight input cells in yellow
+  inputSheet.getRange("C4:E4").getFormat().getFill().setColor("#FFFFCC"); // Yellow for input
   
-  // Last Name input
-  inputSheet.getRange("E6").setValue("Last Name");
-  inputSheet.getRange("E6").getFormat().getFont().setBold(true);
-  inputSheet.getRange("E6").getFormat().getFill().setColor("#DDEEFF"); // Light blue for header
-  inputSheet.getRange("E7").getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
-  
-  // Separator
-  inputSheet.getRange("E8").getFormat().getFill().setColor("#D3D3D3"); // Light grey
-  
-  // Date of Birth input
-  inputSheet.getRange("E9").setValue("Date of Birth (MM/DD/YYYY)");
-  inputSheet.getRange("E9").getFormat().getFont().setBold(true);
-  inputSheet.getRange("E9").getFormat().getFill().setColor("#DDEEFF"); // Light blue for header
-  inputSheet.getRange("E10").getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+  // Add borders to table
+  inputSheet.getRange("C3:E4").getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop).setStyle(ExcelScript.BorderLineStyle.continuous);
+  inputSheet.getRange("C3:E4").getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeBottom).setStyle(ExcelScript.BorderLineStyle.continuous);
+  inputSheet.getRange("C3:E4").getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeLeft).setStyle(ExcelScript.BorderLineStyle.continuous);
+  inputSheet.getRange("C3:E4").getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeRight).setStyle(ExcelScript.BorderLineStyle.continuous);
+  inputSheet.getRange("C3:E4").getFormat().getRangeBorder(ExcelScript.BorderIndex.insideHorizontal).setStyle(ExcelScript.BorderLineStyle.continuous);
+  inputSheet.getRange("C3:E4").getFormat().getRangeBorder(ExcelScript.BorderIndex.insideVertical).setStyle(ExcelScript.BorderLineStyle.continuous);
   
   // Auto-fit columns
-  inputSheet.getRange("E3:E10").getFormat().autofitColumns();
+  inputSheet.getRange("C3:E4").getFormat().autofitColumns();
   
-  // Read input values
-  const firstNameValue = String(inputSheet.getRange("E4").getValue()).trim();
-  const lastNameValue = String(inputSheet.getRange("E7").getValue()).trim();
+  // Read input values from row 4
+  const firstNameValue = String(inputSheet.getRange("C4").getValue()).trim();
+  const lastNameValue = String(inputSheet.getRange("D4").getValue()).trim();
   
   // Handle date input - could be a serial number or string
-  const dobRawValue = inputSheet.getRange("E10").getValue();
+  const dobRawValue = inputSheet.getRange("E4").getValue();
   let dobValue = "";
   
   if (typeof dobRawValue === "number") {
@@ -207,10 +199,11 @@ async function main(workbook: ExcelScript.Workbook) {
   
   // Validate inputs
   if (!firstNameValue || !lastNameValue || !dobValue) {
-    console.log("✅ Input form is ready. Please enter:");
-    console.log("   - First Name in cell E4");
-    console.log("   - Last Name in cell E7");
-    console.log("   - Date of Birth in cell E10 (MM/DD/YYYY format)");
+    console.log("✅ Input table is ready. Please enter data in row 4:");
+    console.log("   - First Name in cell C4");
+    console.log("   - Last Name in cell D4");
+    console.log("   - Date of Birth in cell E4 (MM/DD/YYYY format)");
+    console.log("   Or paste tab-separated values: FirstName[TAB]LastName[TAB]MM/DD/YYYY");
     console.log("Then run the script again.");
     return;
   }
@@ -218,7 +211,7 @@ async function main(workbook: ExcelScript.Workbook) {
   // Validate first name
   const firstNameValid = validateName(firstNameValue, "First Name");
   if (!firstNameValid.isValid) {
-    inputSheet.getRange("E4").getFormat().getFill().setColor("#FFE6E6"); // Pale red
+    inputSheet.getRange("C4").getFormat().getFill().setColor("#FFE6E6"); // Pale red
     console.log(`❌ ${firstNameValid.errorMessage}`);
     return;
   }
@@ -226,7 +219,7 @@ async function main(workbook: ExcelScript.Workbook) {
   // Validate last name
   const lastNameValid = validateName(lastNameValue, "Last Name");
   if (!lastNameValid.isValid) {
-    inputSheet.getRange("E7").getFormat().getFill().setColor("#FFE6E6"); // Pale red
+    inputSheet.getRange("D4").getFormat().getFill().setColor("#FFE6E6"); // Pale red
     console.log(`❌ ${lastNameValid.errorMessage}`);
     return;
   }
@@ -234,15 +227,15 @@ async function main(workbook: ExcelScript.Workbook) {
   // Validate date of birth
   const dobValid = validateDateOfBirth(dobValue);
   if (!dobValid.isValid) {
-    inputSheet.getRange("E10").getFormat().getFill().setColor("#FFE6E6"); // Pale red
+    inputSheet.getRange("E4").getFormat().getFill().setColor("#FFE6E6"); // Pale red
     console.log(`❌ ${dobValid.errorMessage}`);
     return;
   }
   
   // Clear any previous error highlighting
+  inputSheet.getRange("C4").getFormat().getFill().clear();
+  inputSheet.getRange("D4").getFormat().getFill().clear();
   inputSheet.getRange("E4").getFormat().getFill().clear();
-  inputSheet.getRange("E7").getFormat().getFill().clear();
-  inputSheet.getRange("E10").getFormat().getFill().clear();
   
   // Clean names by removing suffixes
   const cleanFirstName = removeSuffixes(firstNameValue);
