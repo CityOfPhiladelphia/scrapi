@@ -8,16 +8,38 @@ import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 
 /** Extract zipcode from address line */
 const extractZipcode = (text: string[]): string => {
+  // Primary method: Look for "City/State/Zip:" format
   const [addressLine] = text.filter((line) => { return line.match(/.*City\/State\/Zip.*/) });
-  assert(addressLine, 'Docket Sheet does not contain a zip code');
-
-  const zipline = addressLine.split('City/State/Zip:')[1];
-  const zipParts = zipline.trim().split(/\s+/);
-  return zipParts[zipParts.length - 1]; // Take the last part as zip code
+  
+  if (addressLine) {
+    const zipline = addressLine.split('City/State/Zip:')[1];
+    const zipParts = zipline.trim().split(/\s+/);
+    return zipParts[zipParts.length - 1]; // Take the last part as zip code
+  }
+  
+  // Fallback method: Look for Pennsylvania zip codes (5 digits with PA on same line)
+  for (const line of text) {
+    const zipMatch = line.match(/.*\b(?:PA|Pennsylvania)\s+(\d{5}(?:-\d{4})?)\b/i);
+    if (zipMatch) {
+      return zipMatch[1]; // Return the captured zip code group
+    }
+  }
+  
+  throw new Error('Docket Sheet does not contain a zip code');
 };
 
 /** Extract balance with 4-level fallback chain */
 const extractBalance = (text: string[], pages: any[]) => {
+  // Check for simple "Case Balance: $amount" format first (before other fallbacks)
+  const balanceLine = text.find((line) => 
+    line.match(/case balance:\s*\$[\d,]+\.?\d*/i)
+  );
+  if (balanceLine) {
+    const balanceMatch = balanceLine.match(/\$[\d,]+\.?\d*/);
+    const balanceAmount = balanceMatch ? balanceMatch[0] : '';
+    return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: balanceAmount };
+  }
+
   // Try primary logic first - existing approach
   let total = text.find((line) => line.match(/^.*Grand Totals.*$/));
 
@@ -46,13 +68,14 @@ const extractBalance = (text: string[], pages: any[]) => {
       );
     }
 
-    // Fallback 4: Look for balance-related patterns
+    // Fallback 4: Look for balance-related patterns (but exclude "Case Balance:" format)
     if (!total) {
       total = text.find((line) =>
         (line.toLowerCase().includes('balance') ||
           line.toLowerCase().includes('total due') ||
           line.toLowerCase().includes('amount owed')) &&
-        line.includes('|')
+        line.includes('|') &&
+        !line.toLowerCase().match(/case balance:\s*\$/)
       );
     }
   }

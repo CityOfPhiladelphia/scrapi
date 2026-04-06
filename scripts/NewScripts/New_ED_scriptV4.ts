@@ -232,13 +232,21 @@ async function fetchAllData(docketNum: string): Promise<ProcessedData> {
 
 // data extraction
 function extractZipCode(financial?: FinancialResponse, person?: Person): string {
+  // Primary: Try to extract from summary person address first
+  const address = person?.address || "";
+  if (address) {
+    const zipMatch = address.match(/\b\d{5}(?:-\d{4})?\b/);
+    if (zipMatch?.[0]) {
+      return zipMatch[0];
+    }
+  }
+
+  // Secondary: Fall back to docket financial zipcode field
   if (financial?.zipcode) {
     return financial.zipcode;
   }
 
-  const address = person?.address || "";
-  const zipMatch = address.match(/\b\d{5}(?:-\d{4})?\b/);
-  return zipMatch?.[0] || "";
+  return "";
 }
 
 function getCasesForDocket(cases: Case[] | undefined, docketNum: string): Case[] {
