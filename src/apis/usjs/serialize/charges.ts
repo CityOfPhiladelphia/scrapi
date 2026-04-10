@@ -371,9 +371,16 @@ const combineMultilineDescription = (chargeLines: string[]): string => {
     /^(Philadelphia|Montgomery|Bucks|Delaware|Chester|Berks|Lancaster|York|Dauphin|Allegheny|Westmoreland|Washington|Fayette|Greene|Beaver|Butler|Armstrong|Indiana|Jefferson|Clarion|Venango|Crawford|Erie|Warren|McKean|Potter|Tioga|Bradford|Susquehanna|Wayne|Pike|Monroe|Carbon|Northampton|Lehigh|Schuylkill|Lebanon|Luzerne|Lackawanna|Wyoming|Sullivan|Columbia|Montour|Snyder|Union|Northumberland|Lycoming|Clinton|Centre|Clearfield|Cambria|Blair|Huntingdon|Mifflin|Juniata|Perry|Cumberland|Adams|Franklin|Fulton|Bedford)$/,
     // Case header patterns that definitely indicate new case
     /^Proc Status:/i,
+    /^Processing Status:/i,  // MJ documents use this variant
     /^DC No:/i,
     /^OTN:/i,
     /^Arrest Dt:/i,
+    /^Arrest Date:/i,       // MJ documents use this variant
+    /County:/i,             // County field indicates new case boundary (flexible matching)
+    /^\|.*County:/i,        // County with leading pipe(s)
+    // Case status patterns
+    /^(Open|Closed|Adjudicated|Active|Pending|Dismissed|Completed|Inactive)$/i,
+    /^\|(Open|Closed|Adjudicated|Active|Pending|Dismissed|Completed|Inactive)$/i, // Status with leading pipe
     // Court patterns
     /Court of Common Pleas/i,
     /Municipal Court/i,
@@ -384,49 +391,70 @@ const combineMultilineDescription = (chargeLines: string[]): string => {
   let hitEmptyLine = false;
   let processedFirstLine = false;
   
+  console.log(`🔄 combineMultilineDescription processing ${chargeLines.length} lines:`, chargeLines);
+  
   for (const line of chargeLines) {
     const trimmedLine = line.trim();
     
+    console.log(`🔍 Processing line: "${trimmedLine}"`);
+    
     // Stop immediately if we hit any PDF artifact patterns
     if (pdfArtifactPatterns.some(pattern => pattern.test(trimmedLine))) {
+      console.log(`🚫 Stopping at PDF artifact: "${trimmedLine}"`);
       break;
     }
     
     // Skip sentence lines (containing dates but not "Printed:")
     if (sentenceDatePattern.test(trimmedLine) && !trimmedLine.includes('Printed:')) {
+      console.log(`📅 Skipping sentence line: "${trimmedLine}"`);
       continue;
     }
     
     // If this is an empty line, mark it
     if (trimmedLine.length === 0) {
       hitEmptyLine = true;
+      console.log(`⚪ Empty line detected`);
       continue;
     }
     
+    // Check for case boundary patterns
+    const isCaseBoundary = caseStartPatterns.some(pattern => pattern.test(trimmedLine)) || 
+                          docketNumberPattern.test(trimmedLine);
+    
+    if (isCaseBoundary) {
+      console.log(`🛑 Case boundary detected: "${trimmedLine}"`);
+      break;
+    }
+    
     // If we previously hit an empty line and now have content,
-    // check if this looks like a new case
+    // check if this looks like a new case (redundant check, but keeping for safety)
     if (hitEmptyLine && trimmedLine.length > 0) {
       if (caseStartPatterns.some(pattern => pattern.test(trimmedLine)) || 
           docketNumberPattern.test(trimmedLine)) {
+        console.log(`🛑 Case boundary after empty line: "${trimmedLine}"`);
         break;
       }
     }
     
     // After processing the first charge line, be more restrictive about what we accept
     if (processedFirstLine) {
-      // Stop if we encounter definitive case boundary patterns
+      // Stop if we encounter definitive case boundary patterns (redundant check)
       if (caseStartPatterns.some(pattern => pattern.test(trimmedLine)) ||
           docketNumberPattern.test(trimmedLine)) {
+        console.log(`🛑 Case boundary after first line: "${trimmedLine}"`);
         break;
       }
     }
     
+    console.log(`✅ Adding line to charge: "${trimmedLine}"`);
     chargeTextLines.push(trimmedLine);
     processedFirstLine = true;
     hitEmptyLine = false; // Reset after processing content
   }
   
-  return chargeTextLines.join(' | ');
+  const result = chargeTextLines.join(' | ');
+  console.log(`🏁 Combined result: "${result}"`);
+  return result;
 };
 
 /** Orchestrates charge parsing for a case */

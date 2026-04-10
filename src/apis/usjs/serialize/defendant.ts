@@ -103,23 +103,33 @@ export const personMatchersMJ = (lines: string[]) => {
     [Defendant.Hair]: () => keyValueMatch({ line: lines.find(l => l.includes('Hair:')) || '', regex: /Hair:\s+(\w+)/ }),
     [Defendant.Race]: () => keyValueMatch({ line: lines.find(l => l.includes('Race:')) || '', regex: /Race:\s+(\w+)/ }),
     [Defendant.Aliases]: () => {
-      // MJ documents often don't have aliases section
-      const aliasStartIdx = lines.findIndex(line => line.match(/Aliases/));
-      if (aliasStartIdx === -1) {
+      // MJ documents often have aliases on the same line as the "Aliases:" label
+      const aliasLine = lines.find(line => line.match(/Aliases:/));
+      if (!aliasLine) {
         return [];
       }
       
-      const aliasEndIdx = lines.findIndex((line) => line.match(/Open|Closed|Adjudicated|Active|Pending|Dismissed|Completed|Inactive/));
+      // Extract everything after "Aliases:" on the same line
+      const aliasText = aliasLine.split('Aliases:')[1];
+      if (!aliasText) {
+        return [];
+      }
       
-      return lines.slice(aliasStartIdx + 1, aliasEndIdx)
-        .reduce((acc, lineText, idx) => {
-          if (lineText.match(/Race:/)) {
-            acc.push(lineText.split('Race:')[0].replaceAll('|', '').trim());
-            return acc;
-          }
-          acc.push(lineText);
-          return acc;
-        }, [] as string[]) || [];
+      // Split by pipes and clean up each part
+      const aliasFields = aliasText.split('|')
+        .map(field => field.trim())
+        .filter(field => field.length > 0);
+      
+      // Combine all fields and split by commas for multiple aliases
+      const combinedAliases = aliasFields.join(' ').trim();
+      if (!combinedAliases || combinedAliases === 'None') {
+        return [];
+      }
+      
+      // Split by commas and clean up individual aliases
+      return combinedAliases.split(',')
+        .map(alias => alias.trim())
+        .filter(alias => alias.length > 0);
     }
   };
 };

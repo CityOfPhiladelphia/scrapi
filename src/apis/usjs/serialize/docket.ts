@@ -198,6 +198,9 @@ const extractCounty = (text: string[]): string => {
   const [countyLine] = text.filter((line) => { return line.match(/.*County:.*/) });
   let county = countyLine ? countyLine.split('County:')[1]?.trim()?.split(/\s+/)[0] : '';
   
+  // Remove leading pipes from MJ documents (e.g., "|Montgomery" → "Montgomery")
+  county = county.replace(/^\|+/, '');
+  
   // Handle edge cases: empty, pipes, or whitespace only
   if (!county || /^\s*\|\s*$/.test(county)) {
     county = fallbackCountyFromHeader(text);
