@@ -1,6 +1,11 @@
 /** Complex charge parsing logic */
-import { slices, chargeIndex } from './slices.js';
+import { slices, slicesMJ, chargeIndex } from './slices.js';
 import { Charge, Sentence, type CourtCharges, type CourtSentence } from '../types.js';
+
+/** Detect if this is an MJ (Magisterial) court document */
+const isMJDocument = (lines: string[]): boolean => {
+  return lines.some(line => line.match(/MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}/));
+};
 
 /** Helper to handle variable length spaces in split arrays */
 const spaces = (acc: string[], element: string): string[] => {
@@ -245,6 +250,53 @@ const extractSentences = (chargeLines: string[]): CourtSentence[] => {
   }, [] as CourtSentence[]);
 };
 
+/** MJ-specific field identification for more structured parsing */
+const identifyFieldsMJ = (split: string[]) => {
+  const fields = split.map(s => s.trim()).filter(s => s.length > 0);
+  
+  let seqNo = '';
+  let statute = '';
+  let grade = '';
+  let description = '';
+  let disposition = '';
+  
+  // Use content-based identification rather than position-based
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i];
+    
+    // Statute: contains § symbol (highest priority)
+    if (!statute && field.includes('§')) {
+      statute = field;
+      continue;
+    }
+    
+    // Grade: single letter + optional digits, 1-3 characters max
+    if (!grade && field.match(/^[A-Z]\d*$/) && field.length <= 3) {
+      grade = field;
+      continue;
+    }
+    
+    // Disposition: contains known disposition keywords
+    if (!disposition && field.match(/(Guilty|Dismissed|Withdrawn|Held for Court|Nolle|ARD|Conviction|Acquittal|Not Guilty|Waived)/i)) {
+      disposition = field;
+      continue;
+    }
+    
+    // Sequence number: pure digits (typically at the end)
+    if (!seqNo && field.match(/^\d+$/) && field.length <= 3) {
+      seqNo = field;
+      continue;
+    }
+  }
+  
+  // Description: everything else (combine unidentified fields)
+  const usedFields = [statute, grade, disposition, seqNo].filter(f => f);
+  const descriptionFields = fields.filter(field => !usedFields.includes(field));
+  description = descriptionFields.join(' ').trim();
+  
+  return { seqNo, statute, grade, description, disposition };
+};
+
 /** Intelligent field identification based on content patterns rather than position */
 const identifyFields = (split: string[]) => {
   const fields = split.map(s => s.trim()).filter(s => s.length > 0);
@@ -379,15 +431,27 @@ const combineMultilineDescription = (chargeLines: string[]): string => {
 
 /** Orchestrates charge parsing for a case */
 export const parseCharges = (lines: string[]): CourtCharges[] => {
-  const charges = slices({ lines, reducer: chargeIndex });
+  const isMJ = isMJDocument(lines);
+  
+  // Use MJ-aware slicing for MJ documents to handle continuation lines
+  const charges = isMJ ? slicesMJ({ lines }) : slices({ lines, reducer: chargeIndex });
 
-  return charges.map((chargeLines) => {
+  console.log(`⚖️ Charge parsing - Document type: ${isMJ ? 'MJ (Magisterial)' : 'Regular'} court document`);
+  console.log(`📝 Found ${charges.length} charge slices`);
+
+  return charges.map((chargeLines, index) => {
+    console.log(`🔍 Processing charge slice ${index + 1}:`, chargeLines);
+    
     // Combine all charge-related lines (handles multi-line descriptions)
     const combinedChargeLine = combineMultilineDescription(chargeLines);
+    console.log(`🔗 Combined charge line:`, combinedChargeLine);
+    
     const split = combinedChargeLine.split('|');
     
-    // Use intelligent field identification instead of positional parsing
-    const parsed = identifyFields(split);
+    // Use MJ-specific parsing for MJ documents, regular parsing for others
+    const parsed = isMJ ? identifyFieldsMJ(split) : identifyFields(split);
+    
+    console.log(`📋 Parsed charge:`, parsed);
     
     const sentenceLines = extractSentences(chargeLines);
 

@@ -3,6 +3,43 @@ import { keyValueMatch } from './utils.js';
 import { parseCharges } from './charges.js';
 import { Case, type CourtCase } from '../types.js';
 
+/** Detect if this is an MJ (Magisterial) court document */
+const isMJDocument = (lines: string[]): boolean => {
+  return lines.some(line => line.match(/MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}/));
+};
+
+/** Helper to search multiple lines for a pattern */
+const searchLines = (lines: string[], regex: RegExp): string => {
+  for (const line of lines) {
+    const match = keyValueMatch({ line, regex });
+    if (match) return match;
+  }
+  return '';
+};
+
+/** MJ-specific matchers using flexible label-based parsing */
+export const caseMatchersMJ = (lines: string[]) => {
+  return {
+    [Case.DocketNumber]: () => keyValueMatch({ line: lines[0] || '', regex: /([A-Z]+-\d+-[A-Z]+-\d+-\d+)/ }),
+    [Case.ProcStatus]: () => searchLines(lines, /Processing Status:\s*(.+?)(?=\||OTN:|DC No:|$)/),
+    [Case.DCNum]: () => searchLines(lines, /DC No:\s*(\d{10})/),
+    [Case.OTN]: () => {
+      // More flexible OTN matching for MJ documents
+      const result = searchLines(lines, /OTN:\s*([A-Z]\s*\d+\s*-?\s*\d+)/);
+      return result ? result.replace(/\s+/g, ' ').trim() : '';
+    },
+    [Case.ArrestDate]: () => searchLines(lines, /Arrest Date:\s*(\d{2}\/\d{2}\/\d{4})/),
+    [Case.DispositionDate]: () => {
+      // Search more lines for various disposition date patterns
+      return searchLines(lines, /(?:Disp\.|Disposition|Disp Event) Date:\s*(\d{2}\/\d{2}\/\d{4})/);
+    },
+    [Case.DispositionJudge]: () => searchLines(lines, /Disp Judge:\s*(.+?)(?=\s{2,}|$)/),
+    [Case.DefenseAttorney]: () => searchLines(lines, /Def Atty:\s*(.+?)(?=\s{2,}|$)/),
+    [Case.NextActionDate]: () => searchLines(lines, /Next Action Date:\s*(\d{2}\/\d{2}\/\d{4})/),
+    [Case.Charges]: () => parseCharges(lines)
+  };
+};
+
 /** Lazy-evaluated matchers for case header fields */
 export const caseMatchers = (lines: string[]) => {
   return {
@@ -40,7 +77,11 @@ export const caseMatchers = (lines: string[]) => {
 
 /** Aggregator returning typed case object */
 export const cases = (lines: string[]): CourtCase => {
-  const info = caseMatchers(lines);
+  // Detect document type and use appropriate matchers
+  const isMJ = isMJDocument(lines);
+  const info = isMJ ? caseMatchersMJ(lines) : caseMatchers(lines);
+  
+  console.log(`🏛️ Case parsing - Document type: ${isMJ ? 'MJ (Magisterial)' : 'Regular'} court document`);
 
   return {
     [Case.DocketNumber]: info[Case.DocketNumber](),
