@@ -33,7 +33,7 @@ export const docketIndex = (acc: number[], line: string, idx: number): number[] 
 
 /** Reducer for finding charge boundaries */
 export const chargeIndex = (acc: number[], line: string, idx: number): number[] => {
-  const match = line.match(/^\d{1,2}\s+/);
+  const match = line.match(/^(\d{1,2}|99999)\s+/); // Normal 1-2 digits OR specifically "99999"
 
   if (!match) return acc;
   acc.push(idx);
