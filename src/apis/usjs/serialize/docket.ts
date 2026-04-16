@@ -28,60 +28,96 @@ const extractZipcode = (text: string[]): string => {
   throw new Error('Docket Sheet does not contain a zip code');
 };
 
-/** Extract balance with 4-level fallback chain */
+/** Extract balance with 4-level fallback chain - prioritizes last pages */
 const extractBalance = (text: string[], pages: any[]) => {
-  // Check for simple "Case Balance: $amount" format first (before other fallbacks)
-  const balanceLine = text.find((line) => 
+  // Step 1: Search last 2 pages for "Case Balance: $amount" first (most reliable)
+  const lastPages = pages.slice(-2);
+  const financialText = lastPages.flatMap(page => pdf.lines.group(page.content));
+  
+  console.log(`Searching last ${lastPages.length} pages for Case Balance`);
+  
+  const financialBalanceLine = financialText.find((line) => 
     line.match(/case balance:\s*\$[\d,]+\.?\d*/i)
   );
-  if (balanceLine) {
-    const balanceMatch = balanceLine.match(/\$[\d,]+\.?\d*/);
+  
+  if (financialBalanceLine) {
+    const balanceMatch = financialBalanceLine.match(/\$[\d,]+\.?\d*/);
     const balanceAmount = balanceMatch ? balanceMatch[0] : '';
+    console.log(`Found Case Balance in financial section: ${balanceAmount}`);
     return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: balanceAmount };
   }
 
-  // Try primary logic first - existing approach
-  let total = text.find((line) => line.match(/^.*Grand Totals.*$/));
-
-  // If not found, try fallback strategies
+  // Step 2: Search for Grand Totals within financial pages first
+  let total = financialText.find((line) => line.match(/^.*Grand Totals.*$/));
+  
   if (!total) {
-    // Fallback 1: Case-insensitive search
-    total = text.find((line) => line.match(/grand totals/i));
+    // Step 3: Fall back to full document search for Grand Totals
+    console.log('No Grand Totals in financial section, searching full document');
+    total = text.find((line) => line.match(/^.*Grand Totals.*$/));
 
-    // Fallback 2: Page-by-page search if still not found
+    // If not found, try fallback strategies on full document
     if (!total) {
-      for (const page of pages) {
-        const pageLines = pdf.lines.group(page.content);
-        const grandTotalLine = pageLines.find(line => line.match(/grand totals/i));
-        if (grandTotalLine) {
-          total = grandTotalLine;
-          break;
+      // Fallback 1: Case-insensitive search
+      total = text.find((line) => line.match(/grand totals/i));
+
+      // Fallback 2: Page-by-page search if still not found
+      if (!total) {
+        for (const page of pages) {
+          const pageLines = pdf.lines.group(page.content);
+          const grandTotalLine = pageLines.find(line => line.match(/grand totals/i));
+          if (grandTotalLine) {
+            total = grandTotalLine;
+            break;
+          }
         }
       }
-    }
 
-    // Fallback 3: Broader pattern matching for financial summaries
-    if (!total) {
-      total = text.find((line) =>
-        line.toLowerCase().includes('totals') &&
-        (line.includes('$') || line.includes('|'))
-      );
-    }
+      // Fallback 3: Broader pattern matching for financial summaries
+      if (!total) {
+        total = text.find((line) =>
+          line.toLowerCase().includes('totals') &&
+          (line.includes('$') || line.includes('|'))
+        );
+      }
 
-    // Fallback 4: Look for balance-related patterns (but exclude "Case Balance:" format)
-    if (!total) {
-      total = text.find((line) =>
-        (line.toLowerCase().includes('balance') ||
-          line.toLowerCase().includes('total due') ||
-          line.toLowerCase().includes('amount owed')) &&
-        line.includes('|') &&
-        !line.toLowerCase().match(/case balance:\s*\$/)
-      );
+      // Fallback 4: Look for balance-related patterns (but exclude "Case Balance:" format)
+      if (!total) {
+        total = text.find((line) =>
+          (line.toLowerCase().includes('balance') ||
+            line.toLowerCase().includes('total due') ||
+            line.toLowerCase().includes('amount owed')) &&
+          line.includes('|') &&
+          !line.toLowerCase().match(/case balance:\s*\$/)
+        );
+      }
     }
   }
 
-  const [_, _1, assessment, _2, payments, adjustments, nonmonetary, balance] = total && total.split('|') || [];
-  return { assessment, payments, adjustments, nonmonetary, balance };
+  // Parse Grand Totals line - balance is always the last column
+  if (total) {
+    const columns = total.split('|').filter(col => col.trim()); // Remove empty columns
+    console.log(`Grand Totals columns:`, columns);
+    
+    // Extract specific positions, but always get balance from the last column
+    const balance = columns[columns.length - 1]?.trim() || '';
+    
+    // Try to extract other values from expected positions (best effort)
+    let assessment = '', payments = '', adjustments = '', nonmonetary = '';
+    
+    if (columns.length >= 6) {
+      // Standard format: [Grand Totals:, Assessment, ?, Payments, Adjustments, Nonmonetary, Balance]
+      assessment = columns[1]?.trim() || '';
+      payments = columns[3]?.trim() || '';  
+      adjustments = columns[4]?.trim() || '';
+      nonmonetary = columns[5]?.trim() || '';
+    }
+    
+    console.log(`Extracted from Grand Totals - Balance: ${balance}, Assessment: ${assessment}, Payments: ${payments}`);
+    return { assessment, payments, adjustments, nonmonetary, balance };
+  }
+
+  console.log('No Grand Totals found, returning empty balance data');
+  return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: '' };
 };
 
 /** Extract restitution amount and type */
