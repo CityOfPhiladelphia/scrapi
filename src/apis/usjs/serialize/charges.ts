@@ -143,7 +143,7 @@ const parseMissingGradeScenario = (rawFields: string[], original: ReturnType<typ
   }
 
   // Grade remains empty in this scenario
-  grade = '';
+  grade = 'Missing';
 
   return { seqNo, statute, grade, description, disposition };
 };
@@ -486,7 +486,7 @@ export const parseCharges = (lines: string[]): CourtCharges[] => {
     return {
       [Charge.SequenceNum]: parsed.seqNo,
       [Charge.Statute]: parsed.statute,
-      [Charge.Grade]: parsed.grade.match(/^[A-Z]\d*$/) ? parsed.grade : '',
+      [Charge.Grade]: parsed.grade.match(/^[A-Z]\d*$/) ? parsed.grade : 'Missing',
       [Charge.Description]: parsed.description,
       [Charge.Disposition]: parsed.disposition,
       [Charge.Sentence]: sentenceLines
