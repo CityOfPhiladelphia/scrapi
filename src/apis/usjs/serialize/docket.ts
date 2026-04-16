@@ -128,35 +128,118 @@ const extractRestitution = (text: string[]) => {
     }
   }
 
-  // Extract type from restitution lines
-  for (const line of restitutionTypeLines) {
-    const lineText = line.toLowerCase();
+  // Helper function to validate if extracted text looks like an actual entity name
+  const isValidEntityName = (text: string): boolean => {
+    const lower = text.toLowerCase();
+    
+    // Reject generic instructional phrases
+    const genericPhrases = [
+      'defendant', 'pay balance', 'costs, fine and', 'ordered to pay', 
+      'balance of costs', 'fine and', 'is to pay', 'shall pay',
+      'restitution -', 'civil penalty'
+    ];
+    
+    if (genericPhrases.some(phrase => lower.includes(phrase))) {
+      return false;
+    }
+    
+    // Reject if it's mostly lowercase common words (likely sentence fragment)
+    const commonWords = ['the', 'to', 'and', 'of', 'is', 'pay', 'balance', 'costs', 'fine'];
+    const words = text.split(/\s+/);
+    const commonWordCount = words.filter(word => commonWords.includes(word.toLowerCase())).length;
+    if (commonWordCount > words.length / 2) {
+      return false;
+    }
+    
+    // Must be substantial length and look like proper name/entity
+    return text.length > 2 && 
+           !text.match(/^[\|\s\:\-\$\d,\.]+$/) && // Not just symbols/numbers
+           !text.match(/^\d+$/) && // Not just numbers
+           !text.match(/^\$[\d,]+\.?\d*$/); // Not just dollar amounts
+  };
+
+  // Extract actual payee name instead of mapping to categories
+  // First pass: Look for specific entity restitution (with amounts)
+  for (const line of allRestitutionLines) {
     if (!restitutionOwedTo) {
-      if (lineText.includes('individual restitution')) {
-        restitutionOwedTo = 'Individual person';
-      } else if (
-        lineText.includes('public assistance restitution') ||
-        lineText.includes('insurance fraud prevention authority') ||
-        lineText.includes('business entity restitution') ||
-        lineText.includes('unemployment compensation') ||
-        lineText.includes('providian national bank') ||
-        lineText.match(/.*bank.*restitution.*|.*corporation.*restitution.*|.*insurance.*restitution.*|.*government.*restitution.*/i)
-      ) {
-        restitutionOwedTo = 'Government, insurance company, or corporation';
+      console.log(`Processing restitution line (specific pass): "${line}"`);
+      
+      // Pattern 1: PRIORITY - Specific restitution entity tables
+      // Format: "Individual Restitution | |$amount..." or "Entity Name Restitution | |$amount..."
+      if (line.includes('|') && line.match(/\$[\d,]+\.?\d*/)) {
+        // Look for entity name + "Restitution" + pipe table format
+        const entityRestitutionMatch = line.match(/^(.+?\s+restitution)\s+\|/i);
+        if (entityRestitutionMatch) {
+          const fullMatch = entityRestitutionMatch[1].trim();
+          // Extract just the entity name part (everything before "Restitution")
+          const entityName = fullMatch.replace(/\s+restitution$/i, '').trim();
+          if (isValidEntityName(entityName)) {
+            restitutionOwedTo = entityName;
+            console.log(`Successfully extracted entity restitution: "${entityName}" from line: "${line}"`);
+            break;
+          }
+        }
+        
+        // Fallback: any text before first pipe in financial table (if no entity name found)
+        if (!restitutionOwedTo) {
+          const pipeTableMatch = line.match(/^([^|]+?)(?:\s+\|\s|$)/);
+          if (pipeTableMatch && pipeTableMatch[1]) {
+            const candidate = pipeTableMatch[1].trim();
+            if (isValidEntityName(candidate) && candidate.toLowerCase() !== 'restitution') {
+              restitutionOwedTo = candidate;
+              console.log(`Successfully extracted pipe table entity: "${candidate}" from line: "${line}"`);
+              break;
+            }
+          }
+        }
       }
     }
   }
 
-  // Process entity lines (these are already filtered for specific entities)
-  if (!restitutionOwedTo && restitutionEntityLines.length > 0) {
-    for (const line of restitutionEntityLines) {
-      const lineText = line.toLowerCase();
-      if (lineText.includes('individual restitution')) {
-        restitutionOwedTo = 'Individual person';
-        break;
-      } else {
-        // All other entities in our filter are corporate/government
-        restitutionOwedTo = 'Government, insurance company, or corporation';
+  // Second pass: Look for other specific patterns if no entity found yet
+  if (!restitutionOwedTo) {
+    for (const line of allRestitutionLines) {
+      console.log(`Processing restitution line (secondary pass): "${line}"`);
+      
+      // Pattern 3: "Restitution to: [Payee Name]" 
+      const toPattern = line.match(/restitution\s+to:\s*(.+?)(?:\s*\||$)/i);
+      if (toPattern && toPattern[1]) {
+        const candidate = toPattern[1].trim();
+        if (isValidEntityName(candidate)) {
+          restitutionOwedTo = candidate;
+          console.log(`Successfully extracted 'to' pattern: "${candidate}" from line: "${line}"`);
+          break;
+        }
+      }
+      
+      // Pattern 4: Extract from entity-specific lines (when no "restitution" keyword)
+      if (!restitutionOwedTo && restitutionEntityLines.includes(line)) {
+        // Clean up the line by removing common prefixes/suffixes
+        const cleanedLine = line
+          .replace(/^\|+/, '') // Remove leading pipes
+          .replace(/\|+$/, '') // Remove trailing pipes  
+          .replace(/restitution/gi, '') // Remove "restitution" word
+          .replace(/\s*:\s*/, '') // Remove colons
+          .trim();
+        
+        if (isValidEntityName(cleanedLine)) {
+          restitutionOwedTo = cleanedLine;
+          console.log(`Successfully extracted entity pattern: "${cleanedLine}" from line: "${line}"`);
+          break;
+        }
+      }
+    }
+  }
+
+  // Third pass: Fallback to simple "|Restitution" format only if no specific entity found
+  if (!restitutionOwedTo) {
+    for (const line of allRestitutionLines) {
+      console.log(`Processing restitution line (fallback pass): "${line}"`);
+      
+      // Pattern 2: Simple "|Restitution" format (lowest priority)
+      if (line.trim() === '|Restitution' || line.trim() === 'Restitution') {
+        restitutionOwedTo = 'Restitution';
+        console.log(`Successfully extracted simple restitution (fallback): "Restitution" from line: "${line}"`);
         break;
       }
     }
@@ -304,7 +387,8 @@ export async function docket(acc: RestAccumulator): Promise<RestAccumulator> {
     representationType,
     restitutionAmount: restitutionAmount,
     restitutionOwedTo: restitutionOwedTo,
-    docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null
+    docketUrl: acc.data.scrapedUrls?.[FileType.DocketSheet] || null,
+    rawDocketText: text // Add raw text for debugging
   };
 
   console.dir(acc.response.body, { depth: null });
