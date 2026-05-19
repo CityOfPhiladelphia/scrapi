@@ -1,19 +1,11 @@
-import { chromium  as playwright } from 'playwright';
-import chromium from '@sparticuz/chromium';
+import { writeFile } from 'node:fs/promises';
 import { USJS_PDF_PATH } from '../../consts.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 import { FileType } from './types.js';
 import { browserPool } from './browser-pool.js';
 
-
-
 interface DocumentType {
   type: FileType
-};
-
-interface SummaryScrapeParams {
-  docketNumber: string;
-  savePath: string;
 };
 
 // Helper function to get document URLs without downloading
@@ -68,7 +60,7 @@ const getDocumentUrls = async (browserInstance: any, docketNum: string): Promise
 
 
 const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): Promise<RestAccumulator> => {
-  const { docketNum } = acc.data.valid.parameters as Record<string, string> & SummaryScrapeParams;
+  const { docketNum } = acc.data.valid.parameters as Record<string, string>;
   
   // Acquire browser from pool instead of creating new one
   const browserInstance = await browserPool.acquire();
@@ -84,13 +76,9 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
     // Anti-detection: Random delay
     await page.waitForTimeout(300 + Math.random() * 700); // 300-1000ms
     
-    // Find and wait for search control (reuse existing logic)
     try {
-      console.log(`🔍 Looking for search control using getByTitle('Search By')`);
       const searchControl = page.getByTitle('Search By');
-      await searchControl.waitFor({ timeout: 30000 }); // Reduced timeout since page should already be loaded
-      console.log(`Search control found using getByTitle('Search By')`);
-      
+      await searchControl.waitFor({ timeout: 30000 });
       await searchControl.selectOption('Docket Number');
     } catch (error) {
       console.log(`Failed to find search control:`, error instanceof Error ? error.message : String(error));
@@ -111,17 +99,30 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
 
     // Capture the actual URL before clicking
     const reportUrl = await link.getAttribute('href');
-    const fullReportUrl = reportUrl ? `https://ujsportal.pacourts.us${reportUrl}` : null;
+    if (!reportUrl) throw new Error(`No report href found for ${docketNum} (${type})`);
+    const fullReportUrl = `https://ujsportal.pacourts.us${reportUrl}`;
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      // Annoyingly opens in pdf reader mode in a new tab
-      await link.click({ modifiers: ['Alt'] })
-    ]);
+    // Open the report URL in a new page within the same context so the spoofed user agent
+    // is inherited — the PDF endpoint blocks requests from headless UA strings.
+    // The server responds with Content-Disposition: attachment, so goto() aborts with
+    // net::ERR_ABORTED and fires a download event instead — set up the listener first.
+    const reportPage = await browserInstance.context.newPage();
+    try {
+      const [download] = await Promise.all([
+        reportPage.waitForEvent('download', { timeout: 60000 }),
+        reportPage.goto(fullReportUrl).catch(() => {}), // ERR_ABORTED is expected for downloads
+      ]);
 
-    console.log("downloaded path: ", await download.path());
+      const failure = await download.failure();
+      if (failure) throw new Error(`Download failed: ${failure}`);
 
-    await download.saveAs(`${USJS_PDF_PATH}/${type}.pdf`);
+      const suggestedName = download.suggestedFilename();
+      console.log(`📄 Downloaded: ${suggestedName}`);
+
+      await download.saveAs(`${USJS_PDF_PATH}/${type}.pdf`);
+    } finally {
+      await reportPage.close();
+    }
 
     // Store the URL in the accumulator for use in serialize
     acc.data.scrapedUrls = acc.data.scrapedUrls || {};

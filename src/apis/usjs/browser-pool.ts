@@ -1,8 +1,9 @@
-import { chromium as playwright, Browser, Page } from 'playwright';
+import { chromium as playwright, Browser, BrowserContext, Page } from 'playwright';
 import chromium from '@sparticuz/chromium';
 
 interface BrowserInstance {
   browser: Browser;
+  context: BrowserContext;
   page: Page;
   id: string;
   isNavigated: boolean;
@@ -61,39 +62,43 @@ export class BrowserPool {
   }
 
   private async createBrowser(): Promise<BrowserInstance> {
-    const args = process.env.LOCAL ? {} : { 
-      executablePath: await chromium.executablePath("/opt/nodejs/node_modules/@sparticuz/chromium/bin") 
+    const lambdaArgs = process.env.LOCAL ? {} : {
+      executablePath: await chromium.executablePath("/opt/nodejs/node_modules/@sparticuz/chromium/bin"),
+      args: chromium.args,
     };
 
     const browser = await playwright.launch({
-      args: chromium.args,
-      headless: true,
-      ...args
+      headless: process.env.HEADLESS !== 'false',
+      ...lambdaArgs,
     });
 
-    const page = await browser.newPage();
-    
-    // Set longer timeouts for slower court systems
-    page.setDefaultTimeout(60000);
-    page.setDefaultNavigationTimeout(60000);
-    
     // Rotate user agents to appear more human-like
     const userAgents = [
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.1 Safari/537.36',
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ];
-    
     const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-    await page.setExtraHTTPHeaders({
-      'User-Agent': randomUserAgent,
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+
+    // Use an explicit context so context.newPage() works for PDF retrieval
+    const context = await browser.newContext({
+      userAgent: randomUserAgent,
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+      }
     });
+
+    const page = await context.newPage();
+
+    // Set longer timeouts for slower court systems
+    page.setDefaultTimeout(60000);
+    page.setDefaultNavigationTimeout(60000);
 
     const browserInstance: BrowserInstance = {
       browser,
+      context,
       page,
       id: `browser-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       isNavigated: false,
