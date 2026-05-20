@@ -6,7 +6,53 @@ import { FileType } from '../types.js';
 import { person } from './defendant.js';
 import { cases } from './case.js';
 import { slices, docketIndex } from './slices.js';
+import { Case } from '../types.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
+
+const DOCKET_NUMBER_PATTERN = /([A-Z]+-\d+-[A-Z]+-\d+-\d+)/;
+
+const normalizeStatusHeading = (line: string): string | null => {
+  const normalized = line
+    .replace(/^\|+/, '')
+    .replace(/\|+$/, '')
+    .replace(/\(Continued\)/gi, '')
+    .trim()
+    .toLowerCase();
+
+  const headingMap: Record<string, string> = {
+    archived: 'Archived',
+    closed: 'Closed',
+    open: 'Open',
+    adjudicated: 'Adjudicated',
+    active: 'Active',
+    pending: 'Pending',
+    dismissed: 'Dismissed',
+    completed: 'Completed',
+    inactive: 'Inactive'
+  };
+
+  return headingMap[normalized] || null;
+};
+
+const getSummaryStatusByDocket = (lines: string[]): Map<string, string> => {
+  const byDocket = new Map<string, string>();
+  let currentStatus: string | null = null;
+
+  for (const line of lines) {
+    const headingStatus = normalizeStatusHeading(line);
+    if (headingStatus) {
+      currentStatus = headingStatus;
+      continue;
+    }
+
+    const docketMatch = line.match(DOCKET_NUMBER_PATTERN);
+    if (docketMatch && currentStatus) {
+      byDocket.set(docketMatch[1], currentStatus);
+    }
+  }
+
+  return byDocket;
+};
 
 /** Main async function for Summary PDF */
 export async function summary(acc: RestAccumulator): Promise<RestAccumulator> {
@@ -41,10 +87,24 @@ export async function summary(acc: RestAccumulator): Promise<RestAccumulator> {
   console.log('First 5 lines:', text.slice(0, 5));
   console.log('Lines 2-4 specifically:', text.slice(2, 5));
 
+  const summaryStatusByDocket = getSummaryStatusByDocket(text);
+
+  const parsedCases = slices({ lines: text, reducer: docketIndex })
+    .map(cases)
+    .map((courtCase) => {
+      const summaryStatus = summaryStatusByDocket.get(courtCase[Case.DocketNumber]);
+      const parsedStatus = (courtCase[Case.ProcStatus] || '').trim();
+
+      if (summaryStatus === 'Archived' && (!parsedStatus || /^closed$/i.test(parsedStatus))) {
+        courtCase[Case.ProcStatus] = 'Archived';
+      }
+
+      return courtCase;
+    });
+
   const result = {
     person: person(text),
-    cases: slices({ lines: text, reducer: docketIndex })
-      .map(cases),
+    cases: parsedCases,
     summaryUrl: acc.data.scrapedUrls?.[FileType.Summary] || null,
     rawText: text,
     rawChargeSlices: slices({ lines: text, reducer: docketIndex })
