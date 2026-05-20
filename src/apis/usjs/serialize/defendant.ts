@@ -12,6 +12,37 @@ const findFieldLine = (lines: string[], fieldPattern: RegExp): string => {
   return lines.find(line => line.match(fieldPattern)) || '';
 };
 
+/** Normalize name for comparison (handle different formats) */
+const normalizeName = (name: string): string => {
+  if (!name) return '';
+
+  // Convert "Last, First Middle" to "First Middle Last"
+  const commaMatch = name.match(/^(.+?),\s*(.+)$/);
+  if (commaMatch) {
+    const [, lastName, firstMiddle] = commaMatch;
+    return `${firstMiddle.trim()} ${lastName.trim()}`.replace(/\s+/g, ' ').trim();
+  }
+
+  // Return normalized version (remove extra spaces)
+  return name.replace(/\s+/g, ' ').trim();
+};
+
+/** Remove aliases that are exact formatting variants of the defendant full name */
+const deduplicateAliases = (aliases: string[], personName: string): string[] => {
+  if (!aliases || aliases.length === 0) return [];
+
+  const normalizedPersonName = normalizeName(personName).toLowerCase();
+
+  const filtered = aliases.filter(alias => {
+    if (!alias || alias.trim().length === 0) return false;
+
+    const normalizedAlias = normalizeName(alias).toLowerCase();
+    return normalizedAlias !== normalizedPersonName;
+  });
+
+  return filtered;
+};
+
 /** Extract defendant name using label-based parsing for MJ documents */
 export const extractDefendantNameMJ = (lines: string[]) => {
   // For MJ documents, look for name field more dynamically
@@ -140,7 +171,7 @@ export const person = (lines: string[]): SerializedSummary['person'] => {
 
   console.log(`🏛️ Document type: ${isMJ ? 'MJ (Magisterial)' : 'Regular'} court document`);
 
-  return Object.values(Defendant)
+  const personData = Object.values(Defendant)
     .reduce((acc, key) => {
       if (key === Defendant.Aliases) {
         /** This block is for typescript narrowing only */
@@ -163,4 +194,11 @@ export const person = (lines: string[]): SerializedSummary['person'] => {
       [Defendant.Sex]: '',
       [Defendant.Aliases]: []
     } as SerializedSummary['person']);
+
+  personData[Defendant.Aliases] = deduplicateAliases(
+    personData[Defendant.Aliases],
+    personData[Defendant.Name]
+  );
+
+  return personData;
 };
