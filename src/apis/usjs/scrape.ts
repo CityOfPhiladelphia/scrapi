@@ -1,11 +1,62 @@
 import { writeFile } from 'node:fs/promises';
 import { USJS_PDF_PATH } from '../../consts.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
+import type { Page } from 'playwright';
 import { FileType } from './types.js';
 import { browserPool } from './browser-pool.js';
 
 interface DocumentType {
   type: FileType
+};
+
+const searchByControlCandidates = (page: Page) => [
+  page.getByTitle('Search By'),
+  page.getByLabel(/Search By/i),
+  page.locator('select[title="Search By"]'),
+  page.locator('select[name*="SearchBy" i], select[id*="SearchBy" i]'),
+  page.locator('select')
+];
+
+const selectSearchByOption = async (page: Page, optionText: string): Promise<void> => {
+  const normalizedTarget = optionText.toLowerCase();
+
+  for (const locator of searchByControlCandidates(page)) {
+    const count = await locator.count();
+    if (!count) continue;
+
+    for (let i = 0; i < count; i++) {
+      const control = locator.nth(i);
+
+      try {
+        await control.waitFor({ state: 'visible', timeout: 5000 });
+
+        const optionLabels = (await control.locator('option').allTextContents())
+          .map((label: string) => label.trim().toLowerCase());
+
+        const hasTarget = optionLabels.some((label: string) => label.includes(normalizedTarget));
+        if (!hasTarget) continue;
+
+        const selected = await control.evaluate((node: unknown, targetText: string) => {
+          if (!(node instanceof HTMLSelectElement)) return false;
+
+          const match = Array.from(node.options).find((opt) =>
+            (opt.textContent || '').trim().toLowerCase().includes(targetText)
+          );
+
+          if (!match) return false;
+          node.value = match.value;
+          node.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }, normalizedTarget);
+
+        if (selected) return;
+      } catch {
+        // Continue trying other candidate controls.
+      }
+    }
+  }
+
+  throw new Error(`Could not find Search By control with option "${optionText}"`);
 };
 
 // Helper function to get document URLs without downloading
@@ -19,9 +70,7 @@ const getDocumentUrls = async (browserInstance: any, docketNum: string): Promise
   
   // Find and wait for search control
   try {
-    const searchControl = page.getByTitle('Search By');
-    await searchControl.waitFor({ timeout: 15000 });
-    await searchControl.selectOption('Docket Number');
+    await selectSearchByOption(page, 'Docket Number');
   } catch (error) {
     console.log(`Failed to find search control for ${docketNum}:`, error);
     return {};
@@ -77,9 +126,7 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
     await page.waitForTimeout(300 + Math.random() * 700); // 300-1000ms
     
     try {
-      const searchControl = page.getByTitle('Search By');
-      await searchControl.waitFor({ timeout: 30000 });
-      await searchControl.selectOption('Docket Number');
+      await selectSearchByOption(page, 'Docket Number');
     } catch (error) {
       console.log(`Failed to find search control:`, error instanceof Error ? error.message : String(error));
       throw new Error(`Could not find search control: ${error instanceof Error ? error.message : String(error)}`);
@@ -160,12 +207,9 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     
     // Find and wait for search control
     try {
-      console.log(`🔍 Looking for search control using getByTitle('Search By')`);
-      const searchControl = page.getByTitle('Search By');
-      await searchControl.waitFor({ timeout: 20000 });
+      console.log(`🔍 Looking for search control with resilient selectors`);
+      await selectSearchByOption(page, 'Participant Name');
       console.log(`Search control found, selecting Participant Name`);
-      
-      await searchControl.selectOption('Participant Name');
     } catch (error) {
       console.log(`Failed to find search control:`, error instanceof Error ? error.message : String(error));
       throw new Error(`Could not find search control: ${error instanceof Error ? error.message : String(error)}`);
