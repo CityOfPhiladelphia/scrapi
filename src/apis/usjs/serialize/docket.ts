@@ -170,11 +170,12 @@ const extractRestitution = (text: string[]) => {
   let restitutionAmount = '';
   let restitutionOwedTo = '';
 
-  // Extract amount from restitution totals lines only
+  // Extract restitution BALANCE amount from totals lines (last currency column)
   for (const line of restitutionTotalLines) {
-    const amountMatch = line.match(/\$?[\d,]+\.?\d*/);
-    if (amountMatch && !restitutionAmount) {
-      restitutionAmount = amountMatch[0].replace(/^\$/, ''); // Remove $ if present
+    const moneyValues = line.match(/\(?\$[\d,]+(?:\.\d{2})?\)?/g);
+    if (moneyValues && moneyValues.length > 0 && !restitutionAmount) {
+      const balanceValue = moneyValues[moneyValues.length - 1];
+      restitutionAmount = balanceValue.replace(/[()]/g, '');
     }
   }
 
