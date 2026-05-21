@@ -30,21 +30,35 @@ const extractZipcode = (text: string[]): string => {
 
 /** Extract balance with 4-level fallback chain - prioritizes last pages */
 const extractBalance = (text: string[], pages: any[]) => {
+  const extractCaseBalanceAmount = (line: string): string => {
+    const match = line.match(/case balance:\s*(?:\|\s*)*(\$[\d,]+(?:\.\d{2})?)/i);
+    return match ? match[1] : '';
+  };
+
   // Step 1: Search last 2 pages for "Case Balance: $amount" first (most reliable)
   const lastPages = pages.slice(-2);
   const financialText = lastPages.flatMap(page => pdf.lines.group(page.content));
   
   console.log(`Searching last ${lastPages.length} pages for Case Balance`);
   
-  const financialBalanceLine = financialText.find((line) => 
-    line.match(/case balance:\s*\$[\d,]+\.?\d*/i)
-  );
+  const financialBalanceLine = financialText.find((line) => line.match(/case balance:/i));
   
   if (financialBalanceLine) {
-    const balanceMatch = financialBalanceLine.match(/\$[\d,]+\.?\d*/);
-    const balanceAmount = balanceMatch ? balanceMatch[0] : '';
-    console.log(`Found Case Balance in financial section: ${balanceAmount}`);
-    return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: balanceAmount };
+    const balanceAmount = extractCaseBalanceAmount(financialBalanceLine);
+    if (balanceAmount) {
+      console.log(`Found Case Balance in financial section: ${balanceAmount}`);
+      return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: balanceAmount };
+    }
+  }
+
+  // Step 1b: Search full document for Case Balance line
+  const documentBalanceLine = text.find((line) => line.match(/case balance:/i));
+  if (documentBalanceLine) {
+    const balanceAmount = extractCaseBalanceAmount(documentBalanceLine);
+    if (balanceAmount) {
+      console.log(`Found Case Balance in full document: ${balanceAmount}`);
+      return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: balanceAmount };
+    }
   }
 
   // Step 2: Search for Grand Totals within financial pages first
@@ -87,7 +101,7 @@ const extractBalance = (text: string[], pages: any[]) => {
             line.toLowerCase().includes('total due') ||
             line.toLowerCase().includes('amount owed')) &&
           line.includes('|') &&
-          !line.toLowerCase().match(/case balance:\s*\$/)
+          !line.toLowerCase().includes('case balance:')
         );
       }
     }
@@ -116,8 +130,8 @@ const extractBalance = (text: string[], pages: any[]) => {
     return { assessment, payments, adjustments, nonmonetary, balance };
   }
 
-  console.log('No Grand Totals found, returning empty balance data');
-  return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: '' };
+  console.log('No Grand Totals found, defaulting balance to $0.00');
+  return { assessment: '', payments: '', adjustments: '', nonmonetary: '', balance: '$0.00' };
 };
 
 /** Extract restitution amount and type */
