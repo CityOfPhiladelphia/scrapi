@@ -156,42 +156,18 @@ function readParticipantData(workbook: ExcelScript.Workbook): ParticipantData {
 
     console.log(`📍 Processing selected row: ${selectedRow}`);
 
-    // Updated for NEW tracker columns: C=cohortStart, D=cohortEnd, F=firstName, G=lastName, H=dob
-    const cohortStartRawValue = worksheet.getRange(`C${selectedRow}`).getValue();
-    const cohortEndRawValue = worksheet.getRange(`D${selectedRow}`).getValue();
-    const firstNameValue = String(worksheet.getRange(`F${selectedRow}`).getValue()).trim();
-    const lastNameValue = String(worksheet.getRange(`G${selectedRow}`).getValue()).trim();
-    const dobRawValue = worksheet.getRange(`H${selectedRow}`).getValue();
+    // Hardcoded cohort dates for this version
+    const cohortStartValue = "07/07/2025";
+    const cohortEndValue = "08/01/2025";
+
+    // Read participant data from columns: D=firstName, E=lastName, F=dob
+    const firstNameValue = String(worksheet.getRange(`D${selectedRow}`).getValue()).trim();
+    const lastNameValue = String(worksheet.getRange(`E${selectedRow}`).getValue()).trim();
+    const dobRawValue = worksheet.getRange(`F${selectedRow}`).getValue();
 
 
-    // Convert Excel values to strings, handling dates properly
-    let cohortStartValue = "";
-    let cohortEndValue = "";
+    // Convert DOB from Excel format to string
     let dobValue = "";
-
-    // Convert cohort start date
-    if (typeof cohortStartRawValue === "number") {
-        const excelEpoch = new Date(1899, 11, 30);
-        const jsDate = new Date(excelEpoch.getTime() + cohortStartRawValue * 86400 * 1000);
-        const month = (jsDate.getMonth() + 1).toString().padStart(2, '0');
-        const day = jsDate.getDate().toString().padStart(2, '0');
-        const year = jsDate.getFullYear().toString();
-        cohortStartValue = `${month}/${day}/${year}`;
-    } else {
-        cohortStartValue = String(cohortStartRawValue).trim();
-    }
-
-    // Convert cohort end date
-    if (typeof cohortEndRawValue === "number") {
-        const excelEpoch = new Date(1899, 11, 30);
-        const jsDate = new Date(excelEpoch.getTime() + cohortEndRawValue * 86400 * 1000);
-        const month = (jsDate.getMonth() + 1).toString().padStart(2, '0');
-        const day = jsDate.getDate().toString().padStart(2, '0');
-        const year = jsDate.getFullYear().toString();
-        cohortEndValue = `${month}/${day}/${year}`;
-    } else {
-        cohortEndValue = String(cohortEndRawValue).trim();
-    }
 
     if (typeof dobRawValue === "number") {
         // Convert Excel serial date to MM/DD/YYYY string more reliably
@@ -207,11 +183,11 @@ function readParticipantData(workbook: ExcelScript.Workbook): ParticipantData {
         dobValue = String(dobRawValue).trim();
     }
 
-    console.log(`Reading from NEW tracker columns: C${selectedRow}="${cohortStartValue}", D${selectedRow}="${cohortEndValue}", F${selectedRow}="${firstNameValue}", G${selectedRow}="${lastNameValue}", H${selectedRow}="${dobValue}"`);
+    console.log(`Using hardcoded cohort dates: ${cohortStartValue} to ${cohortEndValue}. Reading from tracker columns: D${selectedRow}="${firstNameValue}", E${selectedRow}="${lastNameValue}", F${selectedRow}="${dobValue}"`);
 
     // Validate required fields
-    if (!cohortStartValue || !cohortEndValue || !firstNameValue || !lastNameValue || !dobValue) {
-        throw new Error(`Missing required participant data in tracker columns. Please check C${selectedRow} (cohortStart), D${selectedRow} (cohortEnd), F${selectedRow} (firstName), G${selectedRow} (lastName), H${selectedRow} (DOB)`);
+    if (!firstNameValue || !lastNameValue || !dobValue) {
+        throw new Error(`Missing required participant data in tracker columns. Please check D${selectedRow} (firstName), E${selectedRow} (lastName), F${selectedRow} (DOB)`);
     }
 
     return {
@@ -372,34 +348,34 @@ function populateExcelColumns(workbook: ExcelScript.Workbook, summaryData: Summa
     }
 
     // NEW column mappings for updated tracker:
-    // I=age, J=gender, K=race, M=zip, AA=lastArrestDate, AB=arrestingCounty, AC=otn
+    // G=age, H=gender, I=race, K=zip, Q=lastArrestDate, R=arrestingCounty, S=otn
 
-    // Column I - Age (calculate from DOB in H{selectedRow})
-    const dobFromInput = worksheet.getRange(`H${selectedRow}`).getValue();
+    // Column G - Age (calculate from DOB in F{selectedRow})
+    const dobFromInput = worksheet.getRange(`F${selectedRow}`).getValue();
     const dobString = convertExcelValue(dobFromInput, "date");
     const age = calculateAge(dobString);
     if (age !== undefined) {
-        worksheet.getRange(`I${selectedRow}`).setValue(age);
+        worksheet.getRange(`G${selectedRow}`).setValue(age);
         console.log(`Set age: ${age} (calculated from input DOB: ${dobString})`);
     }
 
-    // Column J - Gender (sex in API)
+    // Column H - Gender (sex in API)
     const gender = summaryPerson?.sex || docketPerson?.sex || "Not Available";
-    worksheet.getRange(`J${selectedRow}`).setValue(gender);
+    worksheet.getRange(`H${selectedRow}`).setValue(gender);
     console.log(`Set gender: ${gender}`);
 
-    // Column K - Race
+    // Column I - Race
     const race = summaryPerson?.race || docketPerson?.race || "Not Available";
-    worksheet.getRange(`K${selectedRow}`).setValue(race);
+    worksheet.getRange(`I${selectedRow}`).setValue(race);
     console.log(`Set race: ${race}`);
 
-    // Column M - Zip Code
+    // Column K - Zip Code
     const zipCode = docketData?.zipcode || extractZipFromAddress(summaryPerson?.address || docketPerson?.address) || "Not Available";
-    worksheet.getRange(`M${selectedRow}`).setValue(zipCode);
+    worksheet.getRange(`K${selectedRow}`).setValue(zipCode);
     console.log(`Set zip code: ${zipCode}`);
 
-    // Column AC - OTN # (use the most recent one passed from search)
-    worksheet.getRange(`AC${selectedRow}`).setValue(mostRecentOtn);
+    // Column S - OTN # (use the most recent one passed from search)
+    worksheet.getRange(`S${selectedRow}`).setValue(mostRecentOtn);
     console.log(`Set OTN: ${mostRecentOtn}`);
 
     console.log("Finished populateExcelColumns function");
@@ -641,33 +617,33 @@ function findTargetDocketAndRearrest(foundCases: Array<{ docketNumber: string, f
 function updateRearrestInfo(workbook: ExcelScript.Workbook, rearrestInfo: { hasRearrest: boolean, rearrrestDate: string | null, rearrrestCase: { docketNumber: string, filingDate: string, otn: string } | null }, selectedRow: number): void {
     const worksheet = workbook.getActiveWorksheet();
 
-    // Column AE - Rearrested? ('yes' or 'no')
+    // Column U - Rearrested? ('yes' or 'no')
     const rearrested = rearrestInfo.hasRearrest ? 'yes' : 'no';
-    worksheet.getRange(`AE${selectedRow}`).setValue(rearrested);
+    worksheet.getRange(`U${selectedRow}`).setValue(rearrested);
     console.log(`Set rearrested status: ${rearrested}`);
 
-    // Column AF - Date of Rearrest (only if rearrest occurred)
+    // Column V - Date of Rearrest (only if rearrest occurred)
     if (rearrestInfo.hasRearrest && rearrestInfo.rearrrestDate) {
-        worksheet.getRange(`AF${selectedRow}`).setValue(rearrestInfo.rearrrestDate);
+        worksheet.getRange(`V${selectedRow}`).setValue(rearrestInfo.rearrrestDate);
         console.log(`Set rearrest date: ${rearrestInfo.rearrrestDate}`);
     } else {
-        worksheet.getRange(`AF${selectedRow}`).setValue('');
+        worksheet.getRange(`V${selectedRow}`).setValue('');
         console.log('No rearrest date to set');
     }
 
-    // Column AG - Offense Description (only if rearrest occurred)
+    // Column X - Offense Description (only if rearrest occurred)
     if (rearrestInfo.hasRearrest && rearrestInfo.rearrrestCase) {
         // Fetch summary data for the rearrest case to get offense description
-        fetchSummaryData(rearrestInfo.rearrrestCase.docketNumber).then(summaryData => {
+        fetchSummaryData(rearrestInfo.rearrrestCase.docketNumber).then((summaryData): void => {
             const offenseDescription = extractOffenseDescription(summaryData?.cases) || "Not Available";
-            worksheet.getRange(`AG${selectedRow}`).setValue(offenseDescription);
+            worksheet.getRange(`X${selectedRow}`).setValue(offenseDescription);
             console.log(`Set offense description for rearrest: ${offenseDescription}`);
-        }).catch(error => {
+        }).catch((error): void => {
             console.log("Error fetching rearrest offense description:", error);
-            worksheet.getRange(`AG${selectedRow}`).setValue("Error fetching data");
+            worksheet.getRange(`X${selectedRow}`).setValue("Error fetching data");
         });
     } else {
-        worksheet.getRange(`AG${selectedRow}`).setValue('');
+        worksheet.getRange(`X${selectedRow}`).setValue('');
         console.log('No rearrest - offense description left blank');
     }
 }
@@ -675,13 +651,13 @@ function updateRearrestInfo(workbook: ExcelScript.Workbook, rearrestInfo: { hasR
 function updateArrestInfo(workbook: ExcelScript.Workbook, mostRecentCase: { docketNumber: string, filingDate: string, otn: string }, selectedRow: number): void {
     const worksheet = workbook.getActiveWorksheet();
 
-    // Column AA - Last Arrest Date (filing date)
-    worksheet.getRange(`AA${selectedRow}`).setValue(mostRecentCase.filingDate);
+    // Column Q - Last Arrest Date (filing date)
+    worksheet.getRange(`Q${selectedRow}`).setValue(mostRecentCase.filingDate);
     console.log(`Set last arrest date: ${mostRecentCase.filingDate}`);
 
-    // Column AB - Arresting County (extract from docket number)
+    // Column R - Arresting County (extract from docket number)
     const county = extractCountyFromDocket(mostRecentCase.docketNumber);
-    worksheet.getRange(`AB${selectedRow}`).setValue(county);
+    worksheet.getRange(`R${selectedRow}`).setValue(county);
     console.log(`Set arresting county: ${county}`);
 }
 
@@ -706,8 +682,8 @@ function extractCountyFromDocket(docketNumber: string): string {
 function populateNoRecordsFound(workbook: ExcelScript.Workbook, selectedRow: number): void {
     const worksheet = workbook.getActiveWorksheet();
 
-    // Calculate age from input DOB (now in column H)
-    const dobFromInput = worksheet.getRange(`H${selectedRow}`).getValue();
+    // Calculate age from input DOB (now in column F)
+    const dobFromInput = worksheet.getRange(`F${selectedRow}`).getValue();
     const dobString = convertExcelValue(dobFromInput, "date");
 
     // Helper function to calculate age from DOB
@@ -735,17 +711,17 @@ function populateNoRecordsFound(workbook: ExcelScript.Workbook, selectedRow: num
 
     // Set values in NEW tracker columns
     if (age !== undefined) {
-        worksheet.getRange(`I${selectedRow}`).setValue(age); // I - Age
+        worksheet.getRange(`G${selectedRow}`).setValue(age); // G - Age
     }
-    worksheet.getRange(`J${selectedRow}`).setValue("No Records"); // J - Gender
-    worksheet.getRange(`K${selectedRow}`).setValue("No Records"); // K - Race
-    worksheet.getRange(`M${selectedRow}`).setValue("No Records"); // M - Zip
-    worksheet.getRange(`AA${selectedRow}`).setValue("No Records"); // AA - Last Arrest Date
-    worksheet.getRange(`AB${selectedRow}`).setValue("No Records"); // AB - County
-    worksheet.getRange(`AC${selectedRow}`).setValue("No Records"); // AC - OTN
-    worksheet.getRange(`AE${selectedRow}`).setValue("no"); // AE - Rearrested (default to 'no' for no records)
-    worksheet.getRange(`AF${selectedRow}`).setValue(""); // AF - Date of Rearrest (empty for no records)
-    worksheet.getRange(`AG${selectedRow}`).setValue(""); // AG - Offense Description (empty for no records)
+    worksheet.getRange(`H${selectedRow}`).setValue("No Records"); // H - Gender
+    worksheet.getRange(`I${selectedRow}`).setValue("No Records"); // I - Race
+    worksheet.getRange(`K${selectedRow}`).setValue("No Records"); // K - Zip
+    worksheet.getRange(`Q${selectedRow}`).setValue("No Records"); // Q - Last Arrest Date
+    worksheet.getRange(`R${selectedRow}`).setValue("No Records"); // R - County
+    worksheet.getRange(`S${selectedRow}`).setValue("No Records"); // S - OTN
+    worksheet.getRange(`U${selectedRow}`).setValue("no"); // U - Rearrested (default to 'no' for no records)
+    worksheet.getRange(`V${selectedRow}`).setValue(""); // V - Date of Rearrest (empty for no records)
+    worksheet.getRange(`X${selectedRow}`).setValue(""); // X - Offense Description (empty for no records)
     // Note: AH (Reconvicted) and AI (Date of Reconviction) are left empty for now as they're not implemented
 
     console.log("Populated 'No Records' status in NEW tracker columns");
@@ -755,16 +731,16 @@ function populateErrorStatus(workbook: ExcelScript.Workbook, selectedRow: number
     const worksheet = workbook.getActiveWorksheet();
 
     // Set error values in NEW tracker columns using getRange()
-    worksheet.getRange(`I${selectedRow}`).setValue("ERROR"); // I - Age
-    worksheet.getRange(`J${selectedRow}`).setValue("ERROR"); // J - Gender
-    worksheet.getRange(`K${selectedRow}`).setValue("ERROR"); // K - Race
-    worksheet.getRange(`M${selectedRow}`).setValue("ERROR"); // M - Zip
-    worksheet.getRange(`AA${selectedRow}`).setValue("ERROR"); // AA - Last Arrest Date
-    worksheet.getRange(`AB${selectedRow}`).setValue("ERROR"); // AB - County
-    worksheet.getRange(`AC${selectedRow}`).setValue("ERROR"); // AC - OTN
-    worksheet.getRange(`AE${selectedRow}`).setValue("ERROR"); // AE - Rearrested
-    worksheet.getRange(`AF${selectedRow}`).setValue("ERROR"); // AF - Date of Rearrest
-    worksheet.getRange(`AG${selectedRow}`).setValue("ERROR"); // AG - Offense Description
+    worksheet.getRange(`G${selectedRow}`).setValue("ERROR"); // G - Age
+    worksheet.getRange(`H${selectedRow}`).setValue("ERROR"); // H - Gender
+    worksheet.getRange(`I${selectedRow}`).setValue("ERROR"); // I - Race
+    worksheet.getRange(`K${selectedRow}`).setValue("ERROR"); // K - Zip
+    worksheet.getRange(`Q${selectedRow}`).setValue("ERROR"); // Q - Last Arrest Date
+    worksheet.getRange(`R${selectedRow}`).setValue("ERROR"); // R - County
+    worksheet.getRange(`S${selectedRow}`).setValue("ERROR"); // S - OTN
+    worksheet.getRange(`U${selectedRow}`).setValue("ERROR"); // U - Rearrested
+    worksheet.getRange(`V${selectedRow}`).setValue("ERROR"); // V - Date of Rearrest
+    worksheet.getRange(`X${selectedRow}`).setValue("ERROR"); // X - Offense Description
     // Note: AH (Reconvicted) and AI (Date of Reconviction) are left empty for now as they're not implemented
 
     console.log("Populated 'ERROR' status in NEW tracker columns");
