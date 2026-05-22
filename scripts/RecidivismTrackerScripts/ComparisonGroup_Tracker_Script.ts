@@ -92,6 +92,12 @@ interface ParticipantData {
     selectedRow: number; // Add selected row to pass it around
 }
 
+interface FoundCase {
+    docketNumber: string;
+    filingDate: string;
+    otn: string;
+}
+
 // Generational suffixes to remove from participant's last name for better search results
 const GENERATIONAL_SUFFIXES = [
     // Numeric
@@ -307,6 +313,202 @@ async function fetchDocketData(docketNumber: string): Promise<DocketResponse | n
     }
 }
 
+async function fetchPersonSearchData(firstName: string, lastName: string, dobForApi: string): Promise<PersonSearchResponse> {
+    const API_BASE_URL = "https://xpyab0tpx5.execute-api.us-east-1.amazonaws.com/prod";
+    const apiUrl = `${API_BASE_URL}/usjs/v1/person?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&dob=${dobForApi}`;
+
+    console.log("About to fetch:", apiUrl);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            signal: controller.signal
+        });
+
+        console.log("Fetch completed, status:", response.status);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API call failed: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const responseText = await response.text();
+        console.log("Raw API response:", responseText);
+
+        return JSON.parse(responseText) as PersonSearchResponse;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+function normalizeDocketNumber(value: string): string {
+    return value.trim().toUpperCase();
+}
+
+function parseCaseDate(value: string): Date | null {
+    const raw = value?.trim();
+    if (!raw) return null;
+
+    if (raw.includes('/')) {
+        const parts = raw.split('/');
+        if (parts.length === 3) {
+            const [month, day, year] = parts;
+            const parsed = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+            return isNaN(parsed.getTime()) ? null : parsed;
+        }
+    }
+
+    const parsed = new Date(raw);
+    return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function hasOtn(caseRecord: FoundCase): boolean {
+    return !!caseRecord.otn?.trim();
+}
+
+function mergeCaseRecords(existingCase: FoundCase | undefined, incomingCase: FoundCase): FoundCase {
+    if (!existingCase) return incomingCase;
+
+    const existingDate = parseCaseDate(existingCase.filingDate);
+    const incomingDate = parseCaseDate(incomingCase.filingDate);
+
+    if (existingDate && incomingDate) {
+        if (incomingDate.getTime() > existingDate.getTime()) {
+            return incomingCase;
+        }
+        if (incomingDate.getTime() < existingDate.getTime()) {
+            return existingCase;
+        }
+        if (hasOtn(incomingCase) && !hasOtn(existingCase)) {
+            return incomingCase;
+        }
+        return existingCase;
+    }
+
+    if (incomingDate && !existingDate) {
+        return incomingCase;
+    }
+
+    if (existingDate && !incomingDate) {
+        return existingCase;
+    }
+
+    if (hasOtn(incomingCase) && !hasOtn(existingCase)) {
+        return incomingCase;
+    }
+
+    return {
+        docketNumber: existingCase.docketNumber,
+        filingDate: existingCase.filingDate || incomingCase.filingDate,
+        otn: existingCase.otn || incomingCase.otn
+    };
+}
+
+function extractCasesFromSummary(summaryData: SummaryResponse | null): FoundCase[] {
+    const relatedCases: FoundCase[] = [];
+
+    for (const caseData of summaryData?.cases || []) {
+        const docketNumber = (caseData.docketNo || '').trim();
+        if (!docketNumber) continue;
+
+        relatedCases.push({
+            docketNumber,
+            filingDate: (caseData.arrestDt || caseData.dispDt || '').trim(),
+            otn: (caseData.otn || '').trim()
+        });
+    }
+
+    return relatedCases;
+}
+
+function resolveOtnForCase(
+    targetCase: { docketNumber: string; otn: string },
+    summaryData: SummaryResponse | null,
+    docketData: DocketResponse | null
+): string {
+    const directOtn = targetCase.otn?.trim();
+    if (directOtn) return directOtn;
+
+    const targetDocket = normalizeDocketNumber(targetCase.docketNumber);
+
+    const summaryMatch = (summaryData?.cases || []).find((c) => normalizeDocketNumber((c.docketNo || '').trim()) === targetDocket);
+    const summaryOtn = (summaryMatch?.otn || '').trim();
+    if (summaryOtn) return summaryOtn;
+
+    const docketMatch = (docketData?.cases || []).find((c) => normalizeDocketNumber((c.docketNo || '').trim()) === targetDocket);
+    const docketOtn = (docketMatch?.otn || '').trim();
+    if (docketOtn) return docketOtn;
+
+    const fallbackSummaryOtn = (summaryData?.cases || []).map((c) => (c.otn || '').trim()).find((otn) => !!otn);
+    if (fallbackSummaryOtn) return fallbackSummaryOtn;
+
+    const fallbackDocketOtn = (docketData?.cases || []).map((c) => (c.otn || '').trim()).find((otn) => !!otn);
+    if (fallbackDocketOtn) return fallbackDocketOtn;
+
+    return 'N/A';
+}
+
+function pickSeedCases(foundCases: FoundCase[]): FoundCase[] {
+    const seeds: FoundCase[] = [];
+
+    const mjCase = foundCases.find((entry) => normalizeDocketNumber(entry.docketNumber).startsWith('MJ-'));
+    const cpOrMcCase = foundCases.find((entry) => {
+        const normalized = normalizeDocketNumber(entry.docketNumber);
+        return normalized.startsWith('CP-') || normalized.startsWith('MC-');
+    });
+    const otnCase = foundCases.find((entry) => !!entry.otn?.trim());
+
+    if (mjCase) seeds.push(mjCase);
+    if (cpOrMcCase && !seeds.some((seed) => normalizeDocketNumber(seed.docketNumber) === normalizeDocketNumber(cpOrMcCase.docketNumber))) {
+        seeds.push(cpOrMcCase);
+    }
+    if (otnCase && !seeds.some((seed) => normalizeDocketNumber(seed.docketNumber) === normalizeDocketNumber(otnCase.docketNumber))) {
+        seeds.push(otnCase);
+    }
+
+    if (seeds.length === 0 && foundCases.length > 0) {
+        seeds.push(foundCases[0]);
+    }
+
+    return seeds;
+}
+
+async function expandPersonSearchCases(initialCases: FoundCase[]): Promise<FoundCase[]> {
+    const merged = new Map<string, FoundCase>();
+
+    for (const entry of initialCases) {
+        const normalizedDocket = normalizeDocketNumber(entry.docketNumber);
+        merged.set(normalizedDocket, mergeCaseRecords(merged.get(normalizedDocket), entry));
+    }
+
+    const seedCases = pickSeedCases(initialCases);
+
+    for (const seed of seedCases.slice(0, 3)) {
+        const summaryData = await fetchSummaryData(seed.docketNumber);
+        const relatedCases = extractCasesFromSummary(summaryData);
+
+        for (const relatedCase of relatedCases) {
+            const normalizedDocket = normalizeDocketNumber(relatedCase.docketNumber);
+            const normalizedCase: FoundCase = {
+                docketNumber: normalizedDocket,
+                filingDate: relatedCase.filingDate || '',
+                otn: relatedCase.otn || ''
+            };
+            merged.set(normalizedDocket, mergeCaseRecords(merged.get(normalizedDocket), normalizedCase));
+        }
+    }
+
+    console.log(`Expanded case set from ${initialCases.length} to ${merged.size}`);
+    return Array.from(merged.values());
+}
+
 function populateExcelColumns(workbook: ExcelScript.Workbook, summaryData: SummaryResponse | null, docketData: DocketResponse | null, mostRecentOtn: string, selectedRow: number): void {
     console.log("Starting populateExcelColumns function");
     const worksheet = workbook.getActiveWorksheet();
@@ -418,45 +620,8 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
     const cleanedLastName = removeSuffixes(participantData.lastName);
     console.log(`Name cleaning: "${participantData.lastName}" → "${cleanedLastName}"`);
 
-    const API_BASE_URL = "https://xpyab0tpx5.execute-api.us-east-1.amazonaws.com/prod";
-    const apiUrl = `${API_BASE_URL}/usjs/v1/person?firstName=${encodeURIComponent(participantData.firstName)}&lastName=${encodeURIComponent(cleanedLastName)}&dob=${dobForApi}`;
-
     try {
-        console.log("About to fetch:", apiUrl);
-
-        // Add timeout to prevent hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-        const response = await fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-        console.log("Fetch completed, status:", response.status);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.log("API returned error status:", response.status);
-            console.log("Error response:", errorText);
-            throw new Error(`API call failed: ${response.status} ${response.statusText} - ${errorText}`);
-        }
-
-        const responseText = await response.text();
-        console.log("Raw API response:", responseText);
-
-        let data: PersonSearchResponse;
-        try {
-            data = JSON.parse(responseText);
-        } catch (parseError) {
-            console.log("JSON parse error:", parseError);
-            throw new Error("Invalid JSON response from API");
-        }
+        const data = await fetchPersonSearchData(participantData.firstName, cleanedLastName, dobForApi);
 
         console.log(`Found ${data.response.totalCount} dockets`);
 
@@ -466,8 +631,10 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
             return;
         }
 
+        const expandedCases = await expandPersonSearchCases(data.response.foundCases);
+
         // Find target docket and check for rearrest
-        const cohortAnalysis = findTargetDocketAndRearrest(data.response.foundCases, participantData);
+        const cohortAnalysis = findTargetDocketAndRearrest(expandedCases, participantData);
         console.log("Cohort analysis:", cohortAnalysis);
 
         const mostRecentCase = cohortAnalysis.targetDocket;
@@ -485,9 +652,12 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
                 console.log("Summary data:", summaryData ? "received" : "null");
                 console.log("Docket data:", docketData ? "received" : "null");
 
+                const resolvedOtn = resolveOtnForCase(mostRecentCase, summaryData, docketData);
+                console.log(`Resolved OTN for ${mostRecentCase.docketNumber}: ${resolvedOtn}`);
+
                 // Populate Excel columns with the fetched data
                 console.log("Populating Excel columns...");
-                populateExcelColumns(workbook, summaryData, docketData, mostRecentCase.otn || 'N/A', selectedRow);
+                populateExcelColumns(workbook, summaryData, docketData, resolvedOtn, selectedRow);
 
                 // Update last arrest date and county columns
                 updateArrestInfo(workbook, mostRecentCase, selectedRow);
@@ -554,17 +724,8 @@ function findTargetDocketAndRearrest(foundCases: Array<{ docketNumber: string, f
     // Parse all cases with dates
     const parsedCases = foundCases
         .map(docket => {
-            let filingDate: Date;
-            try {
-                if (docket.filingDate.includes('/')) {
-                    // MM/DD/YYYY format
-                    const parts = docket.filingDate.split('/');
-                    filingDate = new Date(`${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`);
-                } else {
-                    // Assume ISO format or other standard format
-                    filingDate = new Date(docket.filingDate);
-                }
-            } catch (error: unknown) {
+            const filingDate = parseCaseDate(docket.filingDate);
+            if (!filingDate) {
                 console.log(`Failed to parse filing date: ${docket.filingDate}`);
                 return null;
             }
