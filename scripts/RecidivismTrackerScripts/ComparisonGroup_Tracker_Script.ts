@@ -446,13 +446,132 @@ function resolveOtnForCase(
     const docketOtn = (docketMatch?.otn || '').trim();
     if (docketOtn) return docketOtn;
 
-    const fallbackSummaryOtn = (summaryData?.cases || []).map((c) => (c.otn || '').trim()).find((otn) => !!otn);
-    if (fallbackSummaryOtn) return fallbackSummaryOtn;
+    return 'N/A';
+}
 
-    const fallbackDocketOtn = (docketData?.cases || []).map((c) => (c.otn || '').trim()).find((otn) => !!otn);
-    if (fallbackDocketOtn) return fallbackDocketOtn;
+function extractCasesFromCaseList(caseList: Case[] | undefined): FoundCase[] {
+    const extracted: FoundCase[] = [];
+
+    for (const caseData of caseList || []) {
+        const docketNumber = (caseData.docketNo || '').trim();
+        if (!docketNumber) continue;
+
+        extracted.push({
+            docketNumber,
+            filingDate: (caseData.arrestDt || caseData.dispDt || '').trim(),
+            otn: (caseData.otn || '').trim()
+        });
+    }
+
+    return extracted;
+}
+
+function isSameCalendarDate(left: Date, right: Date): boolean {
+    return left.getFullYear() === right.getFullYear()
+        && left.getMonth() === right.getMonth()
+        && left.getDate() === right.getDate();
+}
+
+function inferRelatedOtn(targetCase: FoundCase, candidates: FoundCase[]): string {
+    const directOtn = (targetCase.otn || '').trim();
+    if (directOtn) return directOtn;
+
+    const targetDate = parseCaseDate(targetCase.filingDate);
+
+    const withParsedDate = candidates
+        .map((candidate) => {
+            const filingDateParsed = parseCaseDate(candidate.filingDate);
+            const otn = (candidate.otn || '').trim();
+            return filingDateParsed && otn
+                ? {
+                    ...candidate,
+                    otn,
+                    filingDateParsed
+                }
+                : null;
+        })
+        .filter((candidate) => candidate !== null);
+
+    if (targetDate) {
+        const sameDateCase = withParsedDate.find((candidate) => isSameCalendarDate(candidate.filingDateParsed, targetDate));
+        if (sameDateCase) return sameDateCase.otn;
+
+        const nearestCase = withParsedDate
+            .map((candidate) => ({
+                ...candidate,
+                distance: Math.abs(candidate.filingDateParsed.getTime() - targetDate.getTime())
+            }))
+            .sort((a, b) => {
+                if (a.distance !== b.distance) return a.distance - b.distance;
+                return a.filingDateParsed.getTime() - b.filingDateParsed.getTime();
+            })[0];
+
+        if (nearestCase) return nearestCase.otn;
+    }
 
     return 'N/A';
+}
+
+function resolveOriginalArrestCase(
+    targetCase: FoundCase,
+    expandedCases: FoundCase[],
+    summaryData: SummaryResponse | null,
+    docketData: DocketResponse | null,
+    cohortStartDate: string
+): FoundCase {
+    const cohortStartParsed = parseCaseDate(cohortStartDate);
+    const candidates = [
+        targetCase,
+        ...expandedCases,
+        ...extractCasesFromCaseList(summaryData?.cases),
+        ...extractCasesFromCaseList(docketData?.cases)
+    ];
+
+    const resolvedOtn = (() => {
+        const exactMatchOtn = resolveOtnForCase(targetCase, summaryData, docketData);
+        return exactMatchOtn !== 'N/A' ? exactMatchOtn : inferRelatedOtn(targetCase, candidates);
+    })();
+    const normalizedResolvedOtn = resolvedOtn.trim().toUpperCase();
+
+    if (!normalizedResolvedOtn || normalizedResolvedOtn === 'N/A') {
+        return {
+            docketNumber: targetCase.docketNumber,
+            filingDate: targetCase.filingDate,
+            otn: 'N/A'
+        };
+    }
+
+    const sameOtnCases = candidates
+        .filter((candidate) => (candidate.otn || '').trim().toUpperCase() === normalizedResolvedOtn)
+        .map((candidate) => {
+            const filingDateParsed = parseCaseDate(candidate.filingDate);
+            return filingDateParsed
+                ? {
+                    docketNumber: candidate.docketNumber,
+                    filingDate: candidate.filingDate,
+                    otn: (candidate.otn || '').trim(),
+                    filingDateParsed
+                }
+                : null;
+        })
+        .filter((candidate) => candidate !== null)
+        .filter((candidate) => !cohortStartParsed || candidate.filingDateParsed < cohortStartParsed)
+        .sort((a, b) => a.filingDateParsed.getTime() - b.filingDateParsed.getTime());
+
+    if (sameOtnCases.length > 0) {
+        const originalCase = sameOtnCases[0];
+        return {
+            docketNumber: originalCase.docketNumber,
+            filingDate: originalCase.filingDate,
+            otn: originalCase.otn
+        };
+    }
+
+    return {
+        docketNumber: targetCase.docketNumber,
+        filingDate: targetCase.filingDate,
+        otn: resolvedOtn
+    };
 }
 
 function pickSeedCases(foundCases: FoundCase[]): FoundCase[] {
@@ -633,34 +752,42 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
 
         const expandedCases = await expandPersonSearchCases(data.response.foundCases);
 
-        // Find target docket and check for rearrest
-        const cohortAnalysis = findTargetDocketAndRearrest(expandedCases, participantData);
-        console.log("Cohort analysis:", cohortAnalysis);
+        // Keep rearrest analysis on expanded set, but anchor arrest columns to raw person-search set
+        const rearrestAnalysis = findTargetDocketAndRearrest(expandedCases, participantData);
+        const arrestAnchorAnalysis = findTargetDocketAndRearrest(data.response.foundCases, participantData);
+        console.log("Rearrest analysis:", rearrestAnalysis);
+        console.log("Arrest anchor analysis:", arrestAnchorAnalysis);
 
-        const mostRecentCase = cohortAnalysis.targetDocket;
+        const arrestAnchorCase = arrestAnchorAnalysis.targetDocket || rearrestAnalysis.targetDocket;
 
-        if (mostRecentCase) {
+        if (arrestAnchorCase) {
             try {
                 // Fetch detailed data from summary and docket endpoints
-                console.log("Fetching additional data for most recent docket...");
+                console.log("Fetching additional data for arrest anchor docket...");
                 const [summaryData, docketData] = await Promise.all([
-                    fetchSummaryData(mostRecentCase.docketNumber),
-                    fetchDocketData(mostRecentCase.docketNumber)
+                    fetchSummaryData(arrestAnchorCase.docketNumber),
+                    fetchDocketData(arrestAnchorCase.docketNumber)
                 ]);
 
                 console.log("API calls completed");
                 console.log("Summary data:", summaryData ? "received" : "null");
                 console.log("Docket data:", docketData ? "received" : "null");
 
-                const resolvedOtn = resolveOtnForCase(mostRecentCase, summaryData, docketData);
-                console.log(`Resolved OTN for ${mostRecentCase.docketNumber}: ${resolvedOtn}`);
+                const originalArrestCase = resolveOriginalArrestCase(
+                    arrestAnchorCase,
+                    data.response.foundCases,
+                    summaryData,
+                    docketData,
+                    participantData.cohortStartDate
+                );
+                console.log(`Resolved original arrest case: ${originalArrestCase.docketNumber} | ${originalArrestCase.filingDate} | ${originalArrestCase.otn}`);
 
                 // Populate Excel columns with the fetched data
                 console.log("Populating Excel columns...");
-                populateExcelColumns(workbook, summaryData, docketData, resolvedOtn, selectedRow);
+                populateExcelColumns(workbook, summaryData, docketData, originalArrestCase.otn || 'N/A', selectedRow);
 
                 // Update last arrest date and county columns
-                updateArrestInfo(workbook, mostRecentCase, selectedRow);
+                updateArrestInfo(workbook, originalArrestCase, selectedRow);
 
                 console.log("Excel columns populated successfully");
             } catch (populateError) {
@@ -669,13 +796,13 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
             }
 
             // Always update rearrest information when target docket is found
-            updateRearrestInfo(workbook, cohortAnalysis.rearrestInfo, selectedRow);
+            updateRearrestInfo(workbook, rearrestAnalysis.rearrestInfo, selectedRow);
         } else {
             console.log("No target docket found");
             populateNoRecordsFound(workbook, selectedRow);
 
             // Still check and update rearrest information even when no target docket
-            updateRearrestInfo(workbook, cohortAnalysis.rearrestInfo, selectedRow);
+            updateRearrestInfo(workbook, rearrestAnalysis.rearrestInfo, selectedRow);
         }
 
         console.log("Done.");
@@ -892,16 +1019,16 @@ function populateErrorStatus(workbook: ExcelScript.Workbook, selectedRow: number
     const worksheet = workbook.getActiveWorksheet();
 
     // Set error values in NEW tracker columns using getRange()
-    worksheet.getRange(`G${selectedRow}`).setValue("ERROR"); // G - Age
-    worksheet.getRange(`H${selectedRow}`).setValue("ERROR"); // H - Gender
-    worksheet.getRange(`I${selectedRow}`).setValue("ERROR"); // I - Race
-    worksheet.getRange(`K${selectedRow}`).setValue("ERROR"); // K - Zip
-    worksheet.getRange(`Q${selectedRow}`).setValue("ERROR"); // Q - Last Arrest Date
-    worksheet.getRange(`R${selectedRow}`).setValue("ERROR"); // R - County
-    worksheet.getRange(`S${selectedRow}`).setValue("ERROR"); // S - OTN
-    worksheet.getRange(`U${selectedRow}`).setValue("ERROR"); // U - Rearrested
-    worksheet.getRange(`V${selectedRow}`).setValue("ERROR"); // V - Date of Rearrest
-    worksheet.getRange(`X${selectedRow}`).setValue("ERROR"); // X - Offense Description
+    worksheet.getRange(`G${selectedRow}`).setValue("Processing"); // G - Age
+    worksheet.getRange(`H${selectedRow}`).setValue("Processing"); // H - Gender
+    worksheet.getRange(`I${selectedRow}`).setValue("Processing"); // I - Race
+    worksheet.getRange(`K${selectedRow}`).setValue("Processing"); // K - Zip
+    worksheet.getRange(`Q${selectedRow}`).setValue("Processing"); // Q - Last Arrest Date
+    worksheet.getRange(`R${selectedRow}`).setValue("Processing"); // R - County
+    worksheet.getRange(`S${selectedRow}`).setValue("Processing"); // S - OTN
+    worksheet.getRange(`U${selectedRow}`).setValue("Processing"); // U - Rearrested
+    worksheet.getRange(`V${selectedRow}`).setValue("Processing"); // V - Date of Rearrest
+    worksheet.getRange(`X${selectedRow}`).setValue("Processing"); // X - Offense Description
     // Note: AH (Reconvicted) and AI (Date of Reconviction) are left empty for now as they're not implemented
 
     console.log("Populated 'ERROR' status in NEW tracker columns");
