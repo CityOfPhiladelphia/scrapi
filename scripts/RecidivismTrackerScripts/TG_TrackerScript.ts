@@ -98,6 +98,16 @@ interface FoundCase {
     otn: string;
 }
 
+function clearSelectedRowAtStart(workbook: ExcelScript.Workbook, participantData: ParticipantData): void {
+    const worksheet = workbook.getActiveWorksheet();
+    const selectedRow = participantData.selectedRow;
+
+    // Preserve A,B,E plus required input columns C,D,F,G,H; clear output columns from I onward.
+    worksheet.getRange(`I${selectedRow}:XFD${selectedRow}`).clear(ExcelScript.ClearApplyTo.contents);
+
+    console.log(`Cleared row ${selectedRow} from column I onward (preserved A,B,C,D,E,F,G,H)`);
+}
+
 // Generational suffixes to remove from participant's last name for better search results
 const GENERATIONAL_SUFFIXES = [
     // Numeric
@@ -134,6 +144,7 @@ async function main(workbook: ExcelScript.Workbook): Promise<void> {
     console.log(`🚀 TG_TrackerScript started at ${new Date().toLocaleTimeString()}`);
     try {
         const participantData = readParticipantData(workbook);
+        clearSelectedRowAtStart(workbook, participantData);
         console.log(`✅ Successfully read participant data: ${participantData.firstName} ${participantData.lastName}, DOB: ${participantData.dateOfBirth}, Cohort: ${participantData.cohortStartDate} to ${participantData.cohortEndDate}`);
         const dobForApi = convertDobFormat(participantData.dateOfBirth);
         console.log(`🔄 Converted DOB for API: ${dobForApi}`);
@@ -755,6 +766,69 @@ function extractZipFromAddress(address: string | undefined): string | undefined 
     return zipMatch ? zipMatch[0] : undefined;
 }
 
+function convictionTextIndicatesConviction(text: string): boolean {
+    const normalized = text.trim().toLowerCase();
+    if (!normalized) return false;
+
+    const negativePattern = /(not guilty|dismissed|withdrawn|nolle|nol pros|acquitted|not convicted)/i;
+    if (negativePattern.test(normalized)) return false;
+
+    const positivePattern = /(guilty|convicted|nolo contendere|adjudication of guilt|found guilty|plea)/i;
+    return positivePattern.test(normalized);
+}
+
+function summaryHasConviction(summaryData: SummaryResponse | null): boolean {
+    for (const caseData of summaryData?.cases || []) {
+        if (convictionTextIndicatesConviction(caseData.caseStatus || '')) return true;
+        if (convictionTextIndicatesConviction(caseData.procStatus || '')) return true;
+
+        for (const charge of caseData.charges || []) {
+            if (convictionTextIndicatesConviction(charge.disposition || '')) return true;
+        }
+    }
+
+    return false;
+}
+
+async function evaluatePriorHistory(
+    allCases: FoundCase[],
+    arrestAnchorCase: FoundCase
+): Promise<{ priorArrest: boolean; priorConviction: boolean }> {
+    const anchorDate = parseCaseDate(arrestAnchorCase.filingDate);
+    if (!anchorDate) {
+        return { priorArrest: false, priorConviction: false };
+    }
+
+    const priorCases = allCases.filter((entry) => {
+        const parsed = parseCaseDate(entry.filingDate);
+        return !!parsed && parsed.getTime() < anchorDate.getTime();
+    });
+
+    const priorArrest = priorCases.length > 0;
+    if (!priorArrest) {
+        return { priorArrest: false, priorConviction: false };
+    }
+
+    const uniqueDockets = Array.from(new Set(priorCases.map((entry) => normalizeDocketNumber(entry.docketNumber))));
+    const summaries = await Promise.all(uniqueDockets.map((docketNumber) => fetchSummaryData(docketNumber)));
+    const priorConviction = summaries.some((summaryData) => summaryHasConviction(summaryData));
+
+    return { priorArrest, priorConviction };
+}
+
+function updatePriorHistoryInfo(
+    workbook: ExcelScript.Workbook,
+    selectedRow: number,
+    priorHistory: { priorArrest: boolean; priorConviction: boolean }
+): void {
+    const worksheet = workbook.getActiveWorksheet();
+    worksheet.getRange(`X${selectedRow}`).setValue(priorHistory.priorArrest ? 'yes' : 'no');
+    worksheet.getRange(`Y${selectedRow}`).setValue(priorHistory.priorConviction ? 'yes' : 'no');
+
+    console.log(`Set prior arrest: ${priorHistory.priorArrest ? 'yes' : 'no'}`);
+    console.log(`Set prior conviction: ${priorHistory.priorConviction ? 'yes' : 'no'}`);
+}
+
 async function findTargetDocket(participantData: ParticipantData, dobForApi: string, workbook: ExcelScript.Workbook): Promise<void> {
 
     const selectedRow = participantData.selectedRow;
@@ -812,6 +886,10 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
 
                 // Update last arrest date and county columns
                 updateArrestInfo(workbook, originalArrestCase, selectedRow);
+
+                // Update prior arrest / prior conviction columns
+                const priorHistory = await evaluatePriorHistory(data.response.foundCases, originalArrestCase);
+                updatePriorHistoryInfo(workbook, selectedRow, priorHistory);
 
                 console.log("Excel columns populated successfully");
             } catch (populateError) {
@@ -1031,10 +1109,12 @@ function populateNoRecordsFound(workbook: ExcelScript.Workbook, selectedRow: num
     worksheet.getRange(`AA${selectedRow}`).setValue("No Records"); // AA - Last Arrest Date
     worksheet.getRange(`AB${selectedRow}`).setValue("No Records"); // AB - County
     worksheet.getRange(`AC${selectedRow}`).setValue("No Records"); // AC - OTN
+    worksheet.getRange(`X${selectedRow}`).setValue("no"); // X - Prior Arrest
     worksheet.getRange(`AE${selectedRow}`).setValue("no"); // AE - Rearrested (default to 'no' for no records)
     worksheet.getRange(`AF${selectedRow}`).setValue(""); // AF - Date of Rearrest (empty for no records)
     worksheet.getRange(`AG${selectedRow}`).setValue(""); // AG - Offense Description (empty for no records)
-    // Note: AH (Reconvicted) and AI (Date of Reconviction) are left empty for now as they're not implemented
+    worksheet.getRange(`Y${selectedRow}`).setValue("no"); // Y - Prior Conviction?
+    // Note: AI (Date of Reconviction) is left empty as it's not implemented
 
     console.log("Populated 'No Records' status in NEW tracker columns");
 }
@@ -1050,10 +1130,12 @@ function populateErrorStatus(workbook: ExcelScript.Workbook, selectedRow: number
     worksheet.getRange(`AA${selectedRow}`).setValue("Processing"); // AA - Last Arrest Date
     worksheet.getRange(`AB${selectedRow}`).setValue("Processing"); // AB - County
     worksheet.getRange(`AC${selectedRow}`).setValue("Processing"); // AC - OTN
+    worksheet.getRange(`X${selectedRow}`).setValue("Processing"); // X - Prior Arrest
     worksheet.getRange(`AE${selectedRow}`).setValue("Processing"); // AE - Rearrested
     worksheet.getRange(`AF${selectedRow}`).setValue("Processing"); // AF - Date of Rearrest
     worksheet.getRange(`AG${selectedRow}`).setValue("Processing"); // AG - Offense Description
-    // Note: AH (Reconvicted) and AI (Date of Reconviction) are left empty for now as they're not implemented
+    worksheet.getRange(`Y${selectedRow}`).setValue("Processing"); // Y - Prior Conviction?
+    // Note: AI (Date of Reconviction) is left empty as it's not implemented
 
     console.log("Populated 'ERROR' status in NEW tracker columns");
 }

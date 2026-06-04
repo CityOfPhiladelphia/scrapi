@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { USJS_PDF_PATH } from '../../consts.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
-import type { Page } from 'playwright';
+import type { Page, Frame } from 'playwright';
 import { FileType } from './types.js';
 import { browserPool } from './browser-pool.js';
 
@@ -193,14 +193,31 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
   
   // Acquire browser from pool  
   const browserInstance = await browserPool.acquire();
+  let personSearchContext: Awaited<ReturnType<typeof browserInstance.browser.newContext>> | null = null;
+  let personSearchPage: Page | null = null;
   
   try {
     console.log(`� Searching for person: ${firstName} ${lastName}, DOB: ${dob}`);
-    
-    // Ensure browser is navigated to search page
-    await browserPool.ensureNavigated(browserInstance);
-    
-    const page = browserInstance.page;
+
+    // Person-search-only context override to stabilize fingerprinting for this endpoint.
+    personSearchContext = await browserInstance.browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.1 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+      }
+    });
+    personSearchPage = await personSearchContext.newPage();
+    personSearchPage.setDefaultTimeout(60000);
+    personSearchPage.setDefaultNavigationTimeout(60000);
+    await personSearchPage.goto('https://ujsportal.pacourts.us/CaseSearch', {
+      waitUntil: 'networkidle',
+      timeout: 45000
+    });
+
+    const page = personSearchPage;
     
     // Anti-detection: Random delay before search
     await page.waitForTimeout(300 + Math.random() * 700); // 300-1000ms
@@ -238,111 +255,535 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     await firstNameInput.fill(firstName);
     await dobInput.pressSequentially(dobFormatted);
 
-    // Submit search
-    await page.getByRole('button', { name: 'Search' }).nth(1).click();
+    const hasResultSignals = async (): Promise<boolean> => {
+      for (const frame of page.frames()) {
+        const cellCount = await frame.locator('td[data-label="Docket Number"]').count().catch(() => 0);
+        if (cellCount > 0) return true;
+
+        const linkCount = await frame.locator('a[aria-label="Docket Sheet"][href*="docketNumber="]').count().catch(() => 0);
+        if (linkCount > 0) return true;
+
+        const navText = await frame.locator('#caseSearchResultGrid-mobile-navigation-text-field').first().textContent().catch(() => null);
+        if (navText && /Viewing\s+row\s+\d+\s+of\s+\d+/i.test(navText)) return true;
+
+        const noResultsVisible = await frame.locator('.no-results, [data-testid="no-results"]').first().isVisible().catch(() => false);
+        const noResultsTextVisible = await frame.getByText(/no\s+(records|results)\s+found/i).first().isVisible().catch(() => false);
+        if (noResultsVisible || noResultsTextVisible) return true;
+      }
+
+      return false;
+    };
+
+    const clickPreferredSearch = async (): Promise<boolean> => {
+      const searchButtons = page.getByRole('button', { name: /^Search$/i });
+      const count = await searchButtons.count();
+      if (count <= 1) return false;
+
+      const preferred = searchButtons.nth(1);
+      const visible = await preferred.isVisible().catch(() => false);
+      const disabled = await preferred.isDisabled().catch(() => true);
+      if (!visible || disabled) return false;
+
+      await preferred.click();
+      console.log('Clicked preferred Search button at index 1');
+      return true;
+    };
+
+    const clickDobFormSearch = async (): Promise<boolean> => {
+      const clicked = await dobInput.evaluate((node: unknown) => {
+        if (!(node instanceof HTMLInputElement)) return false;
+        const form = node.form;
+        if (!form) return false;
+
+        const buttons = Array.from(form.querySelectorAll('button')) as HTMLButtonElement[];
+        const searchButton = buttons.find((button) => {
+          const label = (button.textContent || '').trim().toLowerCase();
+          const aria = (button.getAttribute('aria-label') || '').trim().toLowerCase();
+          const type = (button.getAttribute('type') || '').trim().toLowerCase();
+          const isSearch = label === 'search' || aria === 'search';
+          const isClickable = !button.disabled && (type === '' || type === 'button' || type === 'submit');
+          return isSearch && isClickable;
+        });
+
+        if (!searchButton) return false;
+        searchButton.click();
+        return true;
+      }).catch(() => false);
+
+      if (clicked) {
+        console.log('Clicked Search button from DOB form context');
+      }
+
+      return clicked;
+    };
+
+    const submitDobForm = async (): Promise<boolean> => {
+      const submitted = await dobInput.evaluate((node: unknown) => {
+        if (!(node instanceof HTMLInputElement)) return false;
+        const form = node.form;
+        if (!form) return false;
+
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+        return true;
+      }).catch(() => false);
+
+      if (submitted) {
+        console.log('Submitted person search via DOB form requestSubmit');
+      }
+
+      return submitted;
+    };
+
+    const pressEnterSubmit = async (): Promise<boolean> => {
+      await dobInput.press('Enter');
+      console.log('Submitted person search via Enter key on DOB input');
+      return true;
+    };
+
+    const submissionAttempts: Array<{ name: string; run: () => Promise<boolean> }> = [
+      { name: 'preferred-search-index-1', run: clickPreferredSearch },
+      { name: 'dob-form-search-button', run: clickDobFormSearch },
+      { name: 'dob-form-request-submit', run: submitDobForm },
+      { name: 'dob-enter-key', run: pressEnterSubmit }
+    ];
+
+    const runSubmissionAttempts = async (): Promise<boolean> => {
+      for (const attempt of submissionAttempts) {
+        const didSubmit = await attempt.run();
+        if (!didSubmit) continue;
+
+        await page.waitForTimeout(900 + Math.random() * 400);
+        if (await hasResultSignals()) {
+          console.log(`Search signals detected after submit attempt: ${attempt.name}`);
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    let attemptWithSignals = await runSubmissionAttempts();
+
+    if (!attemptWithSignals) {
+      console.log('No search-result signals detected across staged submit attempts');
+    }
     
-    // Human-like delay after search (same as working docket search)
-    await page.waitForTimeout(1500 + Math.random() * 1000); // 1.5-2.5s
+    // Brief additional delay before extraction polling.
+    await page.waitForTimeout(600 + Math.random() * 300);
 
     // Extract search results
     const searchResults: any[] = [];
-    
-    // Wait for results table or "no results" message
-    try {
-      await page.waitForSelector('table, .no-results, [data-testid="no-results"]', { timeout: 10000 });
-    } catch (error) {
-      console.log('No results table found, assuming no matches');
+
+    const docketCellSelector = 'td[data-label="Docket Number"]';
+    const reportLinkSelector = 'a[href*="docketNumber="]';
+    const docketLinkSelector = 'a[aria-label="Docket Sheet"][href*="docketNumber="]';
+    const docketNumberPattern = /^(CP|MC|MD|SU)-\d{2}-[A-Z]{2}-\d{7}-\d{4}$|^MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}$/;
+    const docketPattern = /(CP|MC|MD|SU)-\d{2}-[A-Z]{2}-\d{7}-\d{4}|MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}/g;
+    const toAbsoluteUrl = (href: string): string => (
+      href.startsWith('http') ? href : `https://ujsportal.pacourts.us${href}`
+    );
+
+    const getCandidateFrames = (): Frame[] => page.frames();
+    const countInFrames = async (selector: string): Promise<number> => {
+      let total = 0;
+      for (const frame of getCandidateFrames()) {
+        total += await frame.locator(selector).count();
+      }
+      return total;
+    };
+
+    const noResultsVisibleInFrames = async (): Promise<boolean> => {
+      for (const frame of getCandidateFrames()) {
+        const noResultsVisible = await frame.locator('.no-results, [data-testid="no-results"]').first().isVisible().catch(() => false);
+        const noResultsTextVisible = await frame.getByText(/no\s+(records|results)\s+found/i).first().isVisible().catch(() => false);
+        if (noResultsVisible || noResultsTextVisible) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const mobileRowsDetectedInFrames = async (): Promise<boolean> => {
+      for (const frame of getCandidateFrames()) {
+        const navText = await frame.locator('#caseSearchResultGrid-mobile-navigation-text-field').first().textContent().catch(() => null);
+        if (!navText) continue;
+        if (/Viewing\s+row\s+\d+\s+of\s+\d+/i.test(navText)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Wait for either docket cells/links to appear or an explicit no-results state.
+    const waitDeadline = Date.now() + 15000;
+    while (Date.now() < waitDeadline) {
+      const docketCellCount = await countInFrames(docketCellSelector);
+      if (docketCellCount > 0) {
+        break;
+      }
+
+      const docketLinkCount = await countInFrames(docketLinkSelector);
+      if (docketLinkCount > 0) {
+        break;
+      }
+
+      if (await mobileRowsDetectedInFrames()) {
+        break;
+      }
+
+      if (await noResultsVisibleInFrames()) {
+        break;
+      }
+
+      await page.waitForTimeout(250);
     }
 
-    // Find all table rows with docket number patterns - updated for magistrate format
-    const docketPattern = /(CP|MC|MD|SU)-\d{2}-[A-Z]{2}-\d{7}-\d{4}|MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}/;
-    const rows = page.locator('tr');
-    const rowCount = await rows.count();
-    
-    console.log(`Found ${rowCount} total rows to scan`);
+    let docketCellCount = await countInFrames(docketCellSelector);
+    let docketLinkCount = await countInFrames(docketLinkSelector);
 
-    for (let i = 0; i < rowCount; i++) {
-      const row = rows.nth(i);
-      const rowText = await row.textContent() || '';
-      
-      // Check if row contains a docket number
-      const docketMatch = rowText.match(docketPattern);
-      if (docketMatch) {
-        const docketNumber = docketMatch[0];
-        console.log(`Found docket number: ${docketNumber}`);
-        
-        // Extract data using specific element selectors (more reliable than regex)
-        let otn = '';
-        let filingDate = '';
-        
-        // Get OTN directly from data-label element
-        try {
-          const otnCell = row.locator('td[data-label="OTN"]');
-          const otnText = await otnCell.textContent();
-          if (otnText && otnText.trim()) {
-            otn = otnText.trim();
-          }
-        } catch (error) {
-          console.log(`Could not find OTN cell for docket ${docketNumber}`);
-        }
-        
-        // Get Filing Date directly from data-label element
-        try {
-          const dateCell = row.locator('td[data-label="Filing Date"]');
-          const dateText = await dateCell.textContent();
-          if (dateText && dateText.trim()) {
-            filingDate = dateText.trim();
-          }
-        } catch (error) {
-          // Fallback to regex for filing date
-          let dateMatch = rowText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-          if (!dateMatch) {
-            dateMatch = rowText.match(/(\d{4}-\d{1,2}-\d{1,2})/);
-          }
-          if (!dateMatch) {
-            dateMatch = rowText.match(/(\d{1,2}-\d{1,2}-\d{4})/);
-          }
-          if (dateMatch) {
-            filingDate = dateMatch[1];
-          }
-        }
-        
-        console.log(`Row text for debugging: "${rowText}"`);
-        console.log(`Extracted - OTN: "${otn}", Filing Date: "${filingDate}"`);
-        
-        const caseData = {
-          docketNumber,
-          filingDate,
-          otn
-        };
-        
-        console.log(`Extracted case data:`, caseData);
-        searchResults.push(caseData);
+    let mobileRowsDetected = await mobileRowsDetectedInFrames();
+    let explicitNoResults = await noResultsVisibleInFrames();
+
+    if (docketCellCount === 0 && docketLinkCount === 0 && !mobileRowsDetected && !explicitNoResults) {
+      console.log('No search-result signals detected after first submit; retrying search once');
+      attemptWithSignals = await runSubmissionAttempts();
+      await page.waitForTimeout(1500 + Math.random() * 700);
+
+      docketCellCount = await countInFrames(docketCellSelector);
+      docketLinkCount = await countInFrames(docketLinkSelector);
+      mobileRowsDetected = await mobileRowsDetectedInFrames();
+      explicitNoResults = await noResultsVisibleInFrames();
+
+      if (docketCellCount === 0 && docketLinkCount === 0 && !mobileRowsDetected && !explicitNoResults) {
+        const tableCount = await countInFrames('table');
+        const rowCount = await countInFrames('tr');
+        const gridCount = await countInFrames('#caseSearchResultGrid');
+        const searchButtonCount = await page.getByRole('button', { name: /^Search$/i }).count();
+        console.log(`No-signal diagnostics: url=${page.url()}, searchButtons=${searchButtonCount}, tables=${tableCount}, rows=${rowCount}, grids=${gridCount}, docketCells=${docketCellCount}, docketLinks=${docketLinkCount}`);
       }
     }
+
+    // Some pages hydrate cells/links slightly later than search submission.
+    if (docketCellCount === 0 && docketLinkCount === 0) {
+      await page.waitForTimeout(1000);
+      docketCellCount = await countInFrames(docketCellSelector);
+      docketLinkCount = await countInFrames(docketLinkSelector);
+    }
+
+    // Build a cross-frame lookup of report URLs by docket number.
+    const reportUrlMap = new Map<string, { summaryUrl?: string; docketUrl?: string }>();
+    for (const frame of getCandidateFrames()) {
+      const reportLinks = frame.locator(reportLinkSelector);
+      const reportLinkCount = await reportLinks.count();
+      for (let i = 0; i < reportLinkCount; i++) {
+        const href = await reportLinks.nth(i).getAttribute('href');
+        if (!href) continue;
+
+        const match = href.match(/[?&]docketNumber=([^&]+)/i);
+        if (!match?.[1]) continue;
+
+        const docketNumber = decodeURIComponent(match[1]).trim();
+        if (!docketNumber) continue;
+
+        const absoluteUrl = toAbsoluteUrl(href);
+        const existing = reportUrlMap.get(docketNumber) || {};
+
+        if (!existing.docketUrl && /DocketSheet/i.test(href)) {
+          existing.docketUrl = absoluteUrl;
+        }
+        if (!existing.summaryUrl && /CourtSummary/i.test(href)) {
+          existing.summaryUrl = absoluteUrl;
+        }
+
+        reportUrlMap.set(docketNumber, existing);
+      }
+    }
+
+    const seenDockets = new Set<string>();
+    const collectRowsFromFrames = async (): Promise<Array<{ docketNumber: string; filingDate: string; otn: string; docketHref: string; summaryHref: string; rowText: string }>> => {
+      const collected: Array<{ docketNumber: string; filingDate: string; otn: string; docketHref: string; summaryHref: string; rowText: string }> = [];
+
+      for (const frame of getCandidateFrames()) {
+        const frameRows = await frame.evaluate(() => {
+          const docketRegex = /(CP|MC|MD|SU)-\d{2}-[A-Z]{2}-\d{7}-\d{4}|MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}/;
+          const rows = Array.from(document.querySelectorAll('table tbody tr'));
+          return rows.flatMap((row) => {
+            const getCell = (label: string): string => {
+              const el = row.querySelector(`td[data-label="${label}"]`);
+              return (el?.textContent || '').trim();
+            };
+
+            const parseDocketFromHref = (): string => {
+              const anchors = Array.from(row.querySelectorAll('a[href*="docketNumber="]')) as HTMLAnchorElement[];
+              for (const anchor of anchors) {
+                const href = anchor.getAttribute('href') || '';
+                const match = href.match(/[?&]docketNumber=([^&]+)/i);
+                if (match?.[1]) {
+                  return decodeURIComponent(match[1]).trim();
+                }
+              }
+              return '';
+            };
+
+            const parseDocketFromCells = (): string => {
+              const candidates = Array.from(row.querySelectorAll('td[data-label="Docket Number"]'))
+                .map((cell) => (cell.textContent || '').trim())
+                .filter(Boolean);
+              for (const candidate of candidates) {
+                if (docketRegex.test(candidate)) {
+                  return candidate;
+                }
+              }
+              return '';
+            };
+
+            const docketAnchor = row.querySelector('a[aria-label="Docket Sheet"], a[href*="DocketSheet"], a[href*="MdjDocketSheet"], a[href*="CpDocketSheet"]') as HTMLAnchorElement | null;
+            const summaryAnchor = row.querySelector('a[aria-label="Court Summary"], a[href*="CourtSummary"], a[href*="MdjCourtSummary"], a[href*="CpCourtSummary"]') as HTMLAnchorElement | null;
+
+            const rowText = (row.textContent || '').trim();
+            const docketFromCells = parseDocketFromCells();
+            const docketFromHref = parseDocketFromHref();
+            const docketFromText = rowText.match(docketRegex)?.[0] || '';
+            // Prefer docket from link query parameter: it is not affected by hidden sort cells.
+            const docketNumber = docketFromHref || docketFromCells || docketFromText;
+
+            if (!docketNumber || !docketRegex.test(docketNumber)) {
+              return [];
+            }
+
+            return [{
+              docketNumber,
+              filingDate: getCell('Filing Date'),
+              otn: getCell('OTN'),
+              docketHref: docketAnchor?.getAttribute('href') || '',
+              summaryHref: summaryAnchor?.getAttribute('href') || '',
+              rowText
+            }];
+          });
+        }).catch(() => [] as Array<{ docketNumber: string; filingDate: string; otn: string; docketHref: string; summaryHref: string; rowText: string }>);
+
+        collected.push(...frameRows);
+      }
+
+      return collected;
+    };
+
+    let extractedRows = await collectRowsFromFrames();
+    if (extractedRows.length === 0 && docketLinkCount > 0) {
+      // Rows may hydrate after links become visible; retry once before fallback.
+      await page.waitForTimeout(1200);
+      extractedRows = await collectRowsFromFrames();
+    }
+
+    for (const entry of extractedRows) {
+      if (!entry.docketNumber || !docketNumberPattern.test(entry.docketNumber) || seenDockets.has(entry.docketNumber)) {
+        continue;
+      }
+
+      seenDockets.add(entry.docketNumber);
+
+      let filingDate = entry.filingDate;
+      if (!filingDate) {
+        let dateMatch = entry.rowText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+        if (!dateMatch) {
+          dateMatch = entry.rowText.match(/(\d{4}-\d{1,2}-\d{1,2})/);
+        }
+        if (!dateMatch) {
+          dateMatch = entry.rowText.match(/(\d{1,2}-\d{1,2}-\d{4})/);
+        }
+        if (dateMatch) {
+          filingDate = dateMatch[1];
+        }
+      }
+
+      const mappedUrls = reportUrlMap.get(entry.docketNumber);
+
+      const caseData = {
+        docketNumber: entry.docketNumber,
+        filingDate,
+        otn: entry.otn || '',
+        summaryUrl: entry.summaryHref ? toAbsoluteUrl(entry.summaryHref) : (mappedUrls?.summaryUrl || ''),
+        docketUrl: entry.docketHref ? toAbsoluteUrl(entry.docketHref) : (mappedUrls?.docketUrl || '')
+      };
+
+      // Fill missing URLs from the global report-link map.
+      if (mappedUrls) {
+        if (!caseData.summaryUrl && mappedUrls.summaryUrl) {
+          caseData.summaryUrl = mappedUrls.summaryUrl;
+        }
+        if (!caseData.docketUrl && mappedUrls.docketUrl) {
+          caseData.docketUrl = mappedUrls.docketUrl;
+        }
+      }
+
+      console.log(`Extracted case data:`, caseData);
+      searchResults.push(caseData);
+    }
+
+    console.log(`Row extraction produced ${searchResults.length} cases before fallback`);
+
+    // Fallback path if row extraction fails entirely: parse caseSearchResultGrid rows from raw HTML.
+    if (searchResults.length === 0) {
+      const htmlByFrame = await Promise.all(getCandidateFrames().map(async (frame) => frame.content().catch(() => '')));
+
+      const decodeHtml = (value: string): string => (
+        value
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .trim()
+      );
+
+      const extractTdByLabel = (rowHtml: string, label: string): string => {
+        const rx = new RegExp(`<td[^>]*data-label=["']${label}["'][^>]*>([\\s\\S]*?)<\\/td>`, 'i');
+        const match = rowHtml.match(rx);
+        if (!match?.[1]) return '';
+        return decodeHtml(match[1].replace(/<[^>]+>/g, ''));
+      };
+
+      const extractHref = (rowHtml: string, pattern: string): string => {
+        const rx = new RegExp(`<a[^>]*href=["']([^"']*${pattern}[^"']*)["']`, 'i');
+        const match = rowHtml.match(rx);
+        return match?.[1] ? toAbsoluteUrl(decodeHtml(match[1])) : '';
+      };
+
+      for (const frameHtml of htmlByFrame) {
+        if (!frameHtml) continue;
+
+        const tableMatch = frameHtml.match(/<table[^>]*id=["']caseSearchResultGrid["'][^>]*>[\s\S]*?<\/table>/i);
+        if (!tableMatch?.[0]) continue;
+
+        const tbodyMatch = tableMatch[0].match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+        if (!tbodyMatch?.[1]) continue;
+
+        const rowMatches = tbodyMatch[1].match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
+        for (const rowHtml of rowMatches) {
+          const rowText = decodeHtml(rowHtml.replace(/<[^>]+>/g, ' '));
+          const docketFromCell = extractTdByLabel(rowHtml, 'Docket Number');
+          const docketFromHrefMatch = rowHtml.match(/[?&]docketNumber=([^&"']+)/i);
+          const docketFromHref = docketFromHrefMatch?.[1] ? decodeURIComponent(docketFromHrefMatch[1]).trim() : '';
+          const docketFromText = rowText.match(/(CP|MC|MD|SU)-\d{2}-[A-Z]{2}-\d{7}-\d{4}|MJ-\d{5}-[A-Z]{2}-\d{7}-\d{4}/)?.[0] || '';
+          const docketNumber = docketFromHref || docketFromCell || docketFromText;
+
+          if (!docketNumber || !docketNumberPattern.test(docketNumber) || seenDockets.has(docketNumber)) {
+            continue;
+          }
+
+          seenDockets.add(docketNumber);
+
+          const mappedUrls = reportUrlMap.get(docketNumber);
+          const caseData = {
+            docketNumber,
+            filingDate: extractTdByLabel(rowHtml, 'Filing Date'),
+            otn: extractTdByLabel(rowHtml, 'OTN'),
+            summaryUrl: extractHref(rowHtml, 'CourtSummary|MdjCourtSummary|CpCourtSummary') || mappedUrls?.summaryUrl || '',
+            docketUrl: extractHref(rowHtml, 'DocketSheet|MdjDocketSheet|CpDocketSheet') || mappedUrls?.docketUrl || ''
+          };
+
+          console.log(`Fallback case data:`, caseData);
+          searchResults.push(caseData);
+        }
+      }
+
+      // Final fallback: if grid parsing still yields nothing, use validated dockets from URL map.
+      if (searchResults.length === 0) {
+        for (const docketNumber of reportUrlMap.keys()) {
+          if (!docketNumberPattern.test(docketNumber) || seenDockets.has(docketNumber)) {
+            continue;
+          }
+
+          seenDockets.add(docketNumber);
+          const mappedUrls = reportUrlMap.get(docketNumber);
+          const caseData = {
+            docketNumber,
+            filingDate: '',
+            otn: '',
+            summaryUrl: mappedUrls?.summaryUrl || '',
+            docketUrl: mappedUrls?.docketUrl || ''
+          };
+          console.log(`Fallback case data:`, caseData);
+          searchResults.push(caseData);
+        }
+      }
+    }
+
+    // Enrich partially populated cases from raw frame HTML rows when locator extraction misses.
+    const needsEnrichment = searchResults.some((item) => !item.filingDate || !item.otn || !item.summaryUrl || !item.docketUrl);
+    if (needsEnrichment) {
+      const htmlByFrame = await Promise.all(getCandidateFrames().map(async (frame) => frame.content().catch(() => '')));
+
+      const decodeHtml = (value: string): string => (
+        value
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .trim()
+      );
+
+      const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      const extractRowValue = (rowHtml: string, label: string): string => {
+        const rx = new RegExp(`<td[^>]*data-label=["']${escapeRegex(label)}["'][^>]*>([\\s\\S]*?)<\\/td>`, 'i');
+        const match = rowHtml.match(rx);
+        if (!match?.[1]) return '';
+        return decodeHtml(match[1].replace(/<[^>]+>/g, ''));
+      };
+
+      const extractHref = (rowHtml: string, hrefPattern: string): string => {
+        const rx = new RegExp(`<a[^>]*href=["']([^"']*${hrefPattern}[^"']*)["'][^>]*>`, 'i');
+        const match = rowHtml.match(rx);
+        return match?.[1] ? toAbsoluteUrl(decodeHtml(match[1])) : '';
+      };
+
+      for (const caseData of searchResults) {
+        if (caseData.filingDate && caseData.otn && caseData.summaryUrl && caseData.docketUrl) {
+          continue;
+        }
+
+        const docketEscaped = escapeRegex(caseData.docketNumber);
+        const rowRegex = new RegExp(`<tr[^>]*>[\\s\\S]*?${docketEscaped}[\\s\\S]*?<\\/tr>`, 'i');
+
+        for (const frameHtml of htmlByFrame) {
+          if (!frameHtml) continue;
+          const rowMatch = frameHtml.match(rowRegex);
+          if (!rowMatch?.[0]) continue;
+
+          const rowHtml = rowMatch[0];
+
+          if (!caseData.filingDate) {
+            caseData.filingDate = extractRowValue(rowHtml, 'Filing Date');
+          }
+          if (!caseData.otn) {
+            caseData.otn = extractRowValue(rowHtml, 'OTN');
+          }
+          if (!caseData.summaryUrl) {
+            caseData.summaryUrl = extractHref(rowHtml, 'CourtSummary|MdjCourtSummary|CpCourtSummary');
+          }
+          if (!caseData.docketUrl) {
+            caseData.docketUrl = extractHref(rowHtml, 'DocketSheet|MdjDocketSheet|CpDocketSheet');
+          }
+
+          // Stop scanning frames once we found a matching row.
+          break;
+        }
+      }
+    }
+
+    console.log(`Found ${searchResults.length} unique docket numbers to scan`);
     
     console.log(`✅ Found ${searchResults.length} matching cases for ${firstName} ${lastName}`);
     
-    // Now get summary and docket URLs for each case
-    console.log(`📋 Fetching PDF URLs for ${searchResults.length} cases...`);
-    
-    for (let i = 0; i < searchResults.length; i++) {
-      const caseData = searchResults[i];
-      try {
-        console.log(`🔍 Getting URLs for docket ${i + 1}/${searchResults.length}: ${caseData.docketNumber}`);
-        const urls = await getDocumentUrls(browserInstance, caseData.docketNumber);
-        
-        // Add URLs to case data
-        caseData.summaryUrl = urls.summaryUrl;
-        caseData.docketUrl = urls.docketUrl;
-        
-      } catch (error) {
-        console.log(`⚠️ Failed to get URLs for ${caseData.docketNumber}:`, error);
-        // Continue with other cases even if one fails
-      }
-    }
-    
-    console.log(`✅ Completed URL fetching for ${searchResults.length} cases`);
+    const summaryUrlCount = searchResults.filter((item) => item.summaryUrl).length;
+    const docketUrlCount = searchResults.filter((item) => item.docketUrl).length;
+    console.log(`✅ URL extraction summary - summary URLs: ${summaryUrlCount}/${searchResults.length}, docket URLs: ${docketUrlCount}/${searchResults.length}`);
     
     // Store results in accumulator in internal field for serializer to process
     acc.data._personSearchData = {
@@ -360,6 +801,10 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
     console.log(`❌ Error during person search for ${firstName} ${lastName}:`, error);
     throw error;
   } finally {
+    if (personSearchContext) {
+      await personSearchContext.close().catch(() => undefined);
+    }
+
     // Always release browser back to pool
     browserPool.release(browserInstance);
   }
