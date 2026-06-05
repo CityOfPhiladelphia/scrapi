@@ -139,14 +139,37 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
     // Human-like delay after search
     await page.waitForTimeout(1500 + Math.random() * 1000); // 1.5-2.5s
 
+    const noResultsLocator = page.locator('tr.no-records td').filter({ hasText: /No results found/i }).first();
+    const hasExplicitNoResults = async (): Promise<boolean> => {
+      return noResultsLocator.isVisible().catch(() => false);
+    };
+
+    if (await hasExplicitNoResults()) {
+      throw new Error(`NO_RESULTS: No matching case found for docket ${docketNum}`);
+    }
+
     // Find the row with your docket number first
     const docketRow = page.locator(`tr:has-text("${docketNum}")`);
     const index = type === FileType.DocketSheet ? 0 : 1;
     const link = docketRow.locator(`[href*="/Report/"]`).nth(index);
 
     // Capture the actual URL before clicking
-    const reportUrl = await link.getAttribute('href');
-    if (!reportUrl) throw new Error(`No report href found for ${docketNum} (${type})`);
+    let reportUrl: string | null = null;
+    try {
+      reportUrl = await link.getAttribute('href');
+    } catch (error) {
+      if (await hasExplicitNoResults()) {
+        throw new Error(`NO_RESULTS: No matching case found for docket ${docketNum}`);
+      }
+      throw new Error(`LOCATOR_TIMEOUT: Could not resolve report link for docket ${docketNum} (${type})`);
+    }
+
+    if (!reportUrl) {
+      if (await hasExplicitNoResults()) {
+        throw new Error(`NO_RESULTS: No matching case found for docket ${docketNum}`);
+      }
+      throw new Error(`LOCATOR_TIMEOUT: No report href found for docket ${docketNum} (${type})`);
+    }
     const fullReportUrl = `https://ujsportal.pacourts.us${reportUrl}`;
 
     // Open the report URL in a new page within the same context so the spoofed user agent
