@@ -880,9 +880,21 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
                 );
                 console.log(`Resolved original arrest case: ${originalArrestCase.docketNumber} | ${originalArrestCase.filingDate} | ${originalArrestCase.otn}`);
 
+                const rearrestCase = rearrestAnalysis.rearrestInfo.rearrrestCase;
+                const arrestDate = parseCaseDate(originalArrestCase.filingDate);
+                const rearrestDate = rearrestCase ? parseCaseDate(rearrestCase.filingDate) : null;
+                const arrestOtn = (originalArrestCase.otn || '').trim();
+                const rearrestOtn = (rearrestCase?.otn || '').trim();
+                const pickFromRearrest = !!rearrestCase
+                    && (!!rearrestDate && !!arrestDate ? rearrestDate.getTime() >= arrestDate.getTime() : !arrestDate);
+                const latestEventOtn = (pickFromRearrest ? rearrestOtn : arrestOtn)
+                    || (pickFromRearrest ? arrestOtn : rearrestOtn)
+                    || 'N/A';
+                console.log(`Resolved latest-event OTN: ${latestEventOtn}`);
+
                 // Populate Excel columns with the fetched data
                 console.log("Populating Excel columns...");
-                populateExcelColumns(workbook, summaryData, docketData, originalArrestCase.otn || 'N/A', selectedRow);
+                populateExcelColumns(workbook, summaryData, docketData, latestEventOtn, selectedRow);
 
                 // Update last arrest date and county columns
                 updateArrestInfo(workbook, originalArrestCase, selectedRow);
