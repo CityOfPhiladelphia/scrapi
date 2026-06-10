@@ -722,6 +722,22 @@ function extractOffenseDescription(cases: Case[] | undefined): string | undefine
     return descriptions.length > 0 ? descriptions.join(", ") : undefined;
 }
 
+function extractOffenseDescriptionForDocket(cases: Case[] | undefined, docketNumber: string): string | undefined {
+    if (!cases || cases.length === 0) return undefined;
+
+    const target = normalizeDocketNumber(docketNumber);
+    const matchingCase = cases.find((caseData) => normalizeDocketNumber((caseData.docketNo || '').trim()) === target);
+    if (!matchingCase || !matchingCase.charges || matchingCase.charges.length === 0) return undefined;
+
+    const descriptions: string[] = [];
+    for (const charge of matchingCase.charges) {
+        const chargeWithDescription = charge as unknown as { description?: string };
+        if (chargeWithDescription.description) descriptions.push(chargeWithDescription.description);
+    }
+
+    return descriptions.length > 0 ? descriptions.join(', ') : undefined;
+}
+
 // Helper function to extract zip code from address string
 function extractZipFromAddress(address: string | undefined): string | undefined {
     if (!address) return undefined;
@@ -729,6 +745,90 @@ function extractZipFromAddress(address: string | undefined): string | undefined 
     // Look for 5-digit zip code pattern
     const zipMatch = address.match(/\b\d{5}(-\d{4})?\b/);
     return zipMatch ? zipMatch[0] : undefined;
+}
+
+function convictionTextIndicatesConviction(text: string): boolean {
+    const normalized = text.trim().toLowerCase();
+    if (!normalized) return false;
+
+    const negativePattern = /(not guilty|dismissed|withdrawn|nolle|nol pros|acquitted|not convicted)/i;
+    if (negativePattern.test(normalized)) return false;
+
+    const positivePattern = /(guilty|convicted|nolo contendere|adjudication of guilt|found guilty|plea)/i;
+    return positivePattern.test(normalized);
+}
+
+function docketHasConviction(summaryData: SummaryResponse | null, docketNumber: string): boolean {
+    const target = normalizeDocketNumber(docketNumber);
+    const matchingCase = (summaryData?.cases || []).find(
+        (caseData) => normalizeDocketNumber((caseData.docketNo || '').trim()) === target
+    );
+
+    if (!matchingCase) return false;
+    if (convictionTextIndicatesConviction(matchingCase.caseStatus || '')) return true;
+    if (convictionTextIndicatesConviction(matchingCase.procStatus || '')) return true;
+
+    for (const charge of matchingCase.charges || []) {
+        if (convictionTextIndicatesConviction(charge.disposition || '')) return true;
+    }
+
+    return false;
+}
+
+async function evaluateReconviction(
+    allCases: FoundCase[],
+    rearrestInfo: { hasRearrest: boolean; rearrrestDate: string | null; rearrrestCase: FoundCase | null }
+): Promise<{ reconvicted: boolean; reconvictionDate: string | null }> {
+    if (!rearrestInfo.hasRearrest || !rearrestInfo.rearrrestDate) {
+        return { reconvicted: false, reconvictionDate: null };
+    }
+
+    const rearrestDate = parseCaseDate(rearrestInfo.rearrrestDate);
+    if (!rearrestDate) {
+        return { reconvicted: false, reconvictionDate: null };
+    }
+
+    const postRearrestCases = allCases
+        .map((entry) => {
+            const parsedDate = parseCaseDate(entry.filingDate);
+            return parsedDate ? { ...entry, parsedDate } : null;
+        })
+        .filter((entry) => entry !== null)
+        .filter((entry) => entry.parsedDate.getTime() >= rearrestDate.getTime());
+
+    if (postRearrestCases.length === 0) {
+        return { reconvicted: false, reconvictionDate: null };
+    }
+
+    const docketToDate = new Map<string, string>();
+    for (const entry of postRearrestCases) {
+        const docket = normalizeDocketNumber(entry.docketNumber);
+        if (!docketToDate.has(docket)) {
+            docketToDate.set(docket, entry.filingDate);
+        }
+    }
+
+    const convictionDates: Date[] = [];
+    const docketNumbers = Array.from(docketToDate.keys());
+    for (let i = 0; i < docketNumbers.length; i++) {
+        const docketNumber = docketNumbers[i];
+        const fallbackDate = docketToDate.get(docketNumber) || '';
+        const summary = await fetchSummaryData(docketNumber);
+        if (!docketHasConviction(summary, docketNumber)) continue;
+
+        const convictionDate = parseCaseDate(fallbackDate);
+        if (convictionDate) convictionDates.push(convictionDate);
+    }
+
+    if (convictionDates.length === 0) {
+        return { reconvicted: false, reconvictionDate: null };
+    }
+
+    convictionDates.sort((a, b) => a.getTime() - b.getTime());
+    const firstConvictionDate = convictionDates[0];
+    const reconvictionDate = `${(firstConvictionDate.getMonth() + 1).toString().padStart(2, '0')}/${firstConvictionDate.getDate().toString().padStart(2, '0')}/${firstConvictionDate.getFullYear()}`;
+
+    return { reconvicted: true, reconvictionDate };
 }
 
 async function findTargetDocket(participantData: ParticipantData, dobForApi: string, workbook: ExcelScript.Workbook): Promise<void> {
@@ -808,13 +908,13 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
             }
 
             // Always update rearrest information when target docket is found
-            updateRearrestInfo(workbook, rearrestAnalysis.rearrestInfo, selectedRow);
+            await updateRearrestInfo(workbook, rearrestAnalysis.rearrestInfo, selectedRow, expandedCases);
         } else {
             console.log("No target docket found");
             populateNoRecordsFound(workbook, selectedRow);
 
             // Still check and update rearrest information even when no target docket
-            updateRearrestInfo(workbook, rearrestAnalysis.rearrestInfo, selectedRow);
+            await updateRearrestInfo(workbook, rearrestAnalysis.rearrestInfo, selectedRow, expandedCases);
         }
 
         console.log("Done.");
@@ -914,7 +1014,12 @@ function findTargetDocketAndRearrest(foundCases: Array<{ docketNumber: string, f
     };
 }
 
-function updateRearrestInfo(workbook: ExcelScript.Workbook, rearrestInfo: { hasRearrest: boolean, rearrrestDate: string | null, rearrrestCase: { docketNumber: string, filingDate: string, otn: string } | null }, selectedRow: number): void {
+async function updateRearrestInfo(
+    workbook: ExcelScript.Workbook,
+    rearrestInfo: { hasRearrest: boolean, rearrrestDate: string | null, rearrrestCase: { docketNumber: string, filingDate: string, otn: string } | null },
+    selectedRow: number,
+    allCases: FoundCase[]
+): Promise<void> {
     const worksheet = workbook.getActiveWorksheet();
 
     // Column U - Rearrested? ('yes' or 'no')
@@ -933,19 +1038,28 @@ function updateRearrestInfo(workbook: ExcelScript.Workbook, rearrestInfo: { hasR
 
     // Column X - Offense Description (only if rearrest occurred)
     if (rearrestInfo.hasRearrest && rearrestInfo.rearrrestCase) {
-        // Fetch summary data for the rearrest case to get offense description
-        fetchSummaryData(rearrestInfo.rearrrestCase.docketNumber).then((summaryData): void => {
-            const offenseDescription = extractOffenseDescription(summaryData?.cases) || "Not Available";
+        try {
+            const summaryData = await fetchSummaryData(rearrestInfo.rearrrestCase.docketNumber);
+            const offenseDescription = extractOffenseDescriptionForDocket(
+                summaryData?.cases,
+                rearrestInfo.rearrrestCase.docketNumber
+            ) || extractOffenseDescription(summaryData?.cases) || "Not Available";
             worksheet.getRange(`X${selectedRow}`).setValue(offenseDescription);
             console.log(`Set offense description for rearrest: ${offenseDescription}`);
-        }).catch((error): void => {
+        } catch (error) {
             console.log("Error fetching rearrest offense description:", error);
             worksheet.getRange(`X${selectedRow}`).setValue("Error fetching data");
-        });
+        }
     } else {
         worksheet.getRange(`X${selectedRow}`).setValue('');
         console.log('No rearrest - offense description left blank');
     }
+
+    const reconviction = await evaluateReconviction(allCases, rearrestInfo);
+    worksheet.getRange(`Y${selectedRow}`).setValue(reconviction.reconvicted ? 'yes' : 'no');
+    worksheet.getRange(`Z${selectedRow}`).setValue(reconviction.reconvictionDate || '');
+    console.log(`Set reconvicted: ${reconviction.reconvicted ? 'yes' : 'no'}`);
+    console.log(`Set date of reconviction: ${reconviction.reconvictionDate || ''}`);
 }
 
 function updateArrestInfo(workbook: ExcelScript.Workbook, mostRecentCase: { docketNumber: string, filingDate: string, otn: string }, selectedRow: number): void {
@@ -1022,7 +1136,8 @@ function populateNoRecordsFound(workbook: ExcelScript.Workbook, selectedRow: num
     worksheet.getRange(`U${selectedRow}`).setValue("no"); // U - Rearrested (default to 'no' for no records)
     worksheet.getRange(`V${selectedRow}`).setValue(""); // V - Date of Rearrest (empty for no records)
     worksheet.getRange(`X${selectedRow}`).setValue(""); // X - Offense Description (empty for no records)
-    // Note: AH (Reconvicted) and AI (Date of Reconviction) are left empty for now as they're not implemented
+    worksheet.getRange(`Y${selectedRow}`).setValue("no"); // Y - Reconvicted?
+    worksheet.getRange(`Z${selectedRow}`).setValue(""); // Z - Date of Reconviction
 
     console.log("Populated 'No Records' status in NEW tracker columns");
 }
@@ -1041,7 +1156,8 @@ function populateErrorStatus(workbook: ExcelScript.Workbook, selectedRow: number
     worksheet.getRange(`U${selectedRow}`).setValue("Processing"); // U - Rearrested
     worksheet.getRange(`V${selectedRow}`).setValue("Processing"); // V - Date of Rearrest
     worksheet.getRange(`X${selectedRow}`).setValue("Processing"); // X - Offense Description
-    // Note: AH (Reconvicted) and AI (Date of Reconviction) are left empty for now as they're not implemented
+    worksheet.getRange(`Y${selectedRow}`).setValue("Processing"); // Y - Reconvicted?
+    worksheet.getRange(`Z${selectedRow}`).setValue("Processing"); // Z - Date of Reconviction
 
     console.log("Populated 'ERROR' status in NEW tracker columns");
 }

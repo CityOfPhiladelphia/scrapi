@@ -32,8 +32,9 @@ export class BrowserPool {
   }
 
   async acquire(): Promise<BrowserInstance> {
-    // Clean up stale browsers first
+    // Clean up stale/dead browsers first
     await this.cleanupStale();
+    await this.cleanupDead();
     
     // Find available browser
     let browserInstance = this.findAvailableBrowser();
@@ -48,17 +49,50 @@ export class BrowserPool {
       browserInstance = await this.waitForAvailableBrowser();
     }
     
+    // Validate candidate before applying delay and handing it out
+    if (!this.isBrowserInstanceHealthy(browserInstance)) {
+      console.log(`⚠️ Discarding unhealthy browser instance before handout: ${browserInstance.id}`);
+      await this.cleanupBrowser(browserInstance);
+      return this.acquire();
+    }
+
     // Apply anti-DDoS delay
     await this.respectfulDelay(browserInstance.id);
+
+    if (!this.isBrowserInstanceHealthy(browserInstance)) {
+      console.log(`⚠️ Browser became unhealthy during delay: ${browserInstance.id}`);
+      await this.cleanupBrowser(browserInstance);
+      return this.acquire();
+    }
     
     return browserInstance;
   }
 
+  private isBrowserInstanceHealthy(instance: BrowserInstance): boolean {
+    try {
+      if (!instance.browser.isConnected()) return false;
+      if (instance.page.isClosed()) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private findAvailableBrowser(): BrowserInstance | null {
     return this.pool.find(instance => 
+      this.isBrowserInstanceHealthy(instance) &&
       instance.requestCount < this.maxRequestsPerBrowser &&
       Date.now() - instance.lastUsed > 1000 // At least 1 second since last use
     ) || null;
+  }
+
+  private async cleanupDead(): Promise<void> {
+    const deadBrowsers = this.pool.filter((instance) => !this.isBrowserInstanceHealthy(instance));
+
+    for (const deadBrowser of deadBrowsers) {
+      console.log(`🧹 Removing dead browser instance ${deadBrowser.id}`);
+      await this.cleanupBrowser(deadBrowser);
+    }
   }
 
   private async createBrowser(): Promise<BrowserInstance> {
