@@ -98,6 +98,11 @@ interface FoundCase {
     otn: string;
 }
 
+interface CountyLookup {
+    byDocketAndDate: Map<string, string>;
+    byDocket: Map<string, string>;
+}
+
 function clearSelectedRowAtStart(workbook: ExcelScript.Workbook, participantData: ParticipantData): void {
     const worksheet = workbook.getActiveWorksheet();
     const selectedRow = participantData.selectedRow;
@@ -385,6 +390,60 @@ async function fetchPersonSearchData(firstName: string, lastName: string, dobFor
 
 function normalizeDocketNumber(value: string): string {
     return value.trim().toUpperCase();
+}
+
+function normalizeCountyValue(value: string | null | undefined): string | undefined {
+    const normalized = (value || '').trim();
+    return normalized || undefined;
+}
+
+function getCountyFromPersonSearchCase(foundCase: Record<string, unknown>): string | undefined {
+    const county = typeof foundCase.county === 'string' ? foundCase.county : undefined;
+    const countyName = typeof foundCase.countyName === 'string' ? foundCase.countyName : undefined;
+    const countyNm = typeof foundCase.countyNm === 'string' ? foundCase.countyNm : undefined;
+    const countyUpper = typeof foundCase.County === 'string' ? foundCase.County : undefined;
+    const countySnake = typeof foundCase.county_name === 'string' ? foundCase.county_name : undefined;
+
+    return normalizeCountyValue(county)
+        || normalizeCountyValue(countyName)
+        || normalizeCountyValue(countyNm)
+        || normalizeCountyValue(countyUpper)
+        || normalizeCountyValue(countySnake);
+}
+
+function buildDocketDateKey(docketNumber: string, filingDate: string): string {
+    return `${normalizeDocketNumber(docketNumber)}|${(filingDate || '').trim()}`;
+}
+
+function buildCountyLookup(foundCases: Array<{ docketNumber: string; filingDate: string; otn: string }>): CountyLookup {
+    const byDocketAndDate = new Map<string, string>();
+    const byDocket = new Map<string, string>();
+    let foundCountyCount = 0;
+
+    for (const foundCase of foundCases) {
+        const county = getCountyFromPersonSearchCase(foundCase as unknown as Record<string, unknown>);
+        if (!county) continue;
+        foundCountyCount++;
+
+        const docket = normalizeDocketNumber(foundCase.docketNumber);
+        const docketDateKey = buildDocketDateKey(foundCase.docketNumber, foundCase.filingDate);
+
+        if (!byDocketAndDate.has(docketDateKey)) byDocketAndDate.set(docketDateKey, county);
+        if (!byDocket.has(docket)) byDocket.set(docket, county);
+    }
+
+    console.log(`County lookup built from person-search rows: ${foundCountyCount}/${foundCases.length} rows had county text`);
+
+    return { byDocketAndDate, byDocket };
+}
+
+function resolveCountyFromLookup(foundCase: { docketNumber: string; filingDate: string; otn: string }, lookup: CountyLookup | undefined): string | undefined {
+    if (!lookup) return undefined;
+
+    const byDate = lookup.byDocketAndDate.get(buildDocketDateKey(foundCase.docketNumber, foundCase.filingDate));
+    if (byDate) return byDate;
+
+    return lookup.byDocket.get(normalizeDocketNumber(foundCase.docketNumber));
 }
 
 function parseCaseDate(value: string): Date | null {
@@ -823,6 +882,22 @@ function docketHasConviction(summaryData: SummaryResponse | null, docketNumber: 
     return false;
 }
 
+function getConvictionDateForDocket(
+    summaryData: SummaryResponse | null,
+    docketNumber: string,
+    fallbackDate: string
+): Date | null {
+    const target = normalizeDocketNumber(docketNumber);
+    const matchingCase = (summaryData?.cases || []).find(
+        (caseData) => normalizeDocketNumber((caseData.docketNo || '').trim()) === target
+    );
+
+    const dispositionDate = parseCaseDate((matchingCase?.dispDt || '').trim());
+    if (dispositionDate) return dispositionDate;
+
+    return parseCaseDate(fallbackDate);
+}
+
 async function evaluatePriorHistory(
     allCases: FoundCase[],
     arrestAnchorCase: FoundCase
@@ -903,7 +978,7 @@ async function evaluateReconviction(
         const summary = await fetchSummaryData(docketNumber);
         if (!docketHasConviction(summary, docketNumber)) continue;
 
-        const convictionDate = parseCaseDate(fallbackDate);
+        const convictionDate = getConvictionDateForDocket(summary, docketNumber, fallbackDate);
         if (convictionDate) convictionDates.push(convictionDate);
     }
 
@@ -911,9 +986,9 @@ async function evaluateReconviction(
         return { reconvicted: false, reconvictionDate: null };
     }
 
-    convictionDates.sort((a, b) => a.getTime() - b.getTime());
-    const firstConvictionDate = convictionDates[0];
-    const reconvictionDate = `${(firstConvictionDate.getMonth() + 1).toString().padStart(2, '0')}/${firstConvictionDate.getDate().toString().padStart(2, '0')}/${firstConvictionDate.getFullYear()}`;
+    convictionDates.sort((a, b) => b.getTime() - a.getTime());
+    const mostRecentConvictionDate = convictionDates[0];
+    const reconvictionDate = `${(mostRecentConvictionDate.getMonth() + 1).toString().padStart(2, '0')}/${mostRecentConvictionDate.getDate().toString().padStart(2, '0')}/${mostRecentConvictionDate.getFullYear()}`;
 
     return { reconvicted: true, reconvictionDate };
 }
@@ -937,11 +1012,14 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
             return;
         }
 
-        const expandedCases = await expandPersonSearchCases(data.response.foundCases);
+        const initialCases = data.response.foundCases;
+        const countyLookup = buildCountyLookup(initialCases);
+
+        const expandedCases = await expandPersonSearchCases(initialCases);
 
         // Keep rearrest analysis on expanded set, but anchor arrest columns to raw person-search set
         const rearrestAnalysis = findTargetDocketAndRearrest(expandedCases, participantData);
-        const arrestAnchorAnalysis = findTargetDocketAndRearrest(data.response.foundCases, participantData);
+        const arrestAnchorAnalysis = findTargetDocketAndRearrest(initialCases, participantData);
         console.log("Rearrest analysis:", rearrestAnalysis);
         console.log("Arrest anchor analysis:", arrestAnchorAnalysis);
 
@@ -962,7 +1040,7 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
 
                 const originalArrestCase = resolveOriginalArrestCase(
                     arrestAnchorCase,
-                    data.response.foundCases,
+                    initialCases,
                     summaryData,
                     docketData,
                     participantData.cohortStartDate
@@ -986,10 +1064,10 @@ async function findTargetDocket(participantData: ParticipantData, dobForApi: str
                 populateExcelColumns(workbook, summaryData, docketData, latestEventOtn, selectedRow);
 
                 // Update last arrest date and county columns
-                updateArrestInfo(workbook, originalArrestCase, selectedRow);
+                updateArrestInfo(workbook, originalArrestCase, selectedRow, countyLookup);
 
                 // Update prior arrest / prior conviction columns
-                const priorHistory = await evaluatePriorHistory(data.response.foundCases, originalArrestCase);
+                const priorHistory = await evaluatePriorHistory(initialCases, originalArrestCase);
                 updatePriorHistoryInfo(workbook, selectedRow, priorHistory);
 
                 console.log("Excel columns populated successfully");
@@ -1153,24 +1231,32 @@ async function updateRearrestInfo(
     console.log(`Set date of reconviction: ${reconviction.reconvictionDate || ''}`);
 }
 
-function updateArrestInfo(workbook: ExcelScript.Workbook, mostRecentCase: { docketNumber: string, filingDate: string, otn: string }, selectedRow: number): void {
+function updateArrestInfo(
+    workbook: ExcelScript.Workbook,
+    mostRecentCase: { docketNumber: string, filingDate: string, otn: string },
+    selectedRow: number,
+    countyLookup?: CountyLookup
+): void {
     const worksheet = workbook.getActiveWorksheet();
 
     // Column AA - Last Arrest Date (filing date)
     worksheet.getRange(`AA${selectedRow}`).setValue(mostRecentCase.filingDate);
     console.log(`Set last arrest date: ${mostRecentCase.filingDate}`);
 
-    // Column AB - Arresting County (extract from docket number)
-    const county = extractCountyFromDocket(mostRecentCase.docketNumber);
+    // Column AB - Arresting County (from same case as Column AA)
+    const county = resolveCountyFromLookup(mostRecentCase, countyLookup) || extractCountyFromDocket(mostRecentCase.docketNumber);
     worksheet.getRange(`AB${selectedRow}`).setValue(county);
     console.log(`Set arresting county: ${county}`);
 }
 
 function extractCountyFromDocket(docketNumber: string): string {
-    // Docket format: CP-51-CR-1234567-2024 or MC-51-CR-1234567-2024
-    const countyMatch = docketNumber.match(/^[A-Z]{2}-(\d{2})-/);
-    if (countyMatch) {
-        const countyCode = countyMatch[1];
+    // CP/MC/MD/SU dockets have two-digit county code after first dash.
+    const standardCountyMatch = docketNumber.match(/^[A-Z]{2}-(\d{2})-/);
+    // MJ dockets encode a five-digit magisterial district, where first two digits map to county.
+    const mjCountyMatch = docketNumber.match(/^MJ-(\d{5})-/i);
+    const countyCode = standardCountyMatch?.[1] || mjCountyMatch?.[1]?.slice(0, 2);
+
+    if (countyCode) {
         // Map common Philadelphia area county codes
         switch (countyCode) {
             case '51': return 'Philadelphia';
@@ -1222,7 +1308,7 @@ function populateNoRecordsFound(workbook: ExcelScript.Workbook, selectedRow: num
     worksheet.getRange(`K${selectedRow}`).setValue("No Records"); // K - Race
     worksheet.getRange(`M${selectedRow}`).setValue("No Records"); // M - Zip
     worksheet.getRange(`AA${selectedRow}`).setValue("No Records"); // AA - Last Arrest Date
-    worksheet.getRange(`AB${selectedRow}`).setValue("No Records"); // AB - County
+    worksheet.getRange(`AB${selectedRow}`).setValue("No Records"); // AB - Arresting County
     worksheet.getRange(`AC${selectedRow}`).setValue("No Records"); // AC - OTN
     worksheet.getRange(`X${selectedRow}`).setValue("no"); // X - Prior Arrest
     worksheet.getRange(`AE${selectedRow}`).setValue("no"); // AE - Rearrested (default to 'no' for no records)
@@ -1244,7 +1330,7 @@ function populateErrorStatus(workbook: ExcelScript.Workbook, selectedRow: number
     worksheet.getRange(`K${selectedRow}`).setValue("Processing"); // K - Race
     worksheet.getRange(`M${selectedRow}`).setValue("Processing"); // M - Zip
     worksheet.getRange(`AA${selectedRow}`).setValue("Processing"); // AA - Last Arrest Date
-    worksheet.getRange(`AB${selectedRow}`).setValue("Processing"); // AB - County
+    worksheet.getRange(`AB${selectedRow}`).setValue("Processing"); // AB - Arresting County
     worksheet.getRange(`AC${selectedRow}`).setValue("Processing"); // AC - OTN
     worksheet.getRange(`X${selectedRow}`).setValue("Processing"); // X - Prior Arrest
     worksheet.getRange(`AE${selectedRow}`).setValue("Processing"); // AE - Rearrested
