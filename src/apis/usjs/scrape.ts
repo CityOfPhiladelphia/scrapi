@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { USJS_PDF_PATH } from '../../consts.js';
 import type { RestAccumulator } from '@phila/philaroute/dist/types.d.ts';
 import type { Page, Frame } from 'playwright';
@@ -7,6 +7,30 @@ import { browserPool } from './browser-pool.js';
 
 interface DocumentType {
   type: FileType
+};
+
+const captureDiagnostics = async (page: Page, label: string): Promise<void> => {
+  try {
+    const debugDir = USJS_PDF_PATH.replace('usjs', 'debug');
+    await mkdir(debugDir, { recursive: true });
+
+    const url = page.url();
+    const title = await page.title();
+    const selectCount = await page.locator('select').count().catch(() => -1);
+    const searchButtonCount = await page.getByRole('button', { name: /search/i }).count().catch(() => -1);
+    const safeLabel = label.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const screenshotPath = `${debugDir}${safeLabel}-${Date.now()}.png`;
+
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+
+    console.log('[DIAGNOSTIC] label:', label);
+    console.log('[DIAGNOSTIC] url:', url);
+    console.log('[DIAGNOSTIC] title:', title);
+    console.log('[DIAGNOSTIC] select elements:', selectCount, '| search buttons:', searchButtonCount);
+    console.log('[DIAGNOSTIC] screenshot:', screenshotPath);
+  } catch (err) {
+    console.log('[DIAGNOSTIC] capture failed:', err);
+  }
 };
 
 const searchByControlCandidates = (page: Page) => [
@@ -128,6 +152,7 @@ const downloadFile = ({ type }: DocumentType) => async (acc: RestAccumulator): P
     try {
       await selectSearchByOption(page, 'Docket Number');
     } catch (error) {
+      await captureDiagnostics(page, `docket-search-control-${docketNum}`);
       console.log(`Failed to find search control:`, error instanceof Error ? error.message : String(error));
       throw new Error(`Could not find search control: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -251,6 +276,7 @@ const personSearch = async (acc: RestAccumulator): Promise<RestAccumulator> => {
       await selectSearchByOption(page, 'Participant Name');
       console.log(`Search control found, selecting Participant Name`);
     } catch (error) {
+      await captureDiagnostics(page, `person-search-control-${firstName}_${lastName}`);
       console.log(`Failed to find search control:`, error instanceof Error ? error.message : String(error));
       throw new Error(`Could not find search control: ${error instanceof Error ? error.message : String(error)}`);
     }
