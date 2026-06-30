@@ -6,7 +6,8 @@ import type { APIGWV1Payload } from "@phila/philaroute/dist/aws.d.ts";
 export const router = Router({
     cors: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Method': 'GET, OPTIONS',
+        'Access-Control-Allow-Method': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Accept',
         'Access-Control-Max-Age': '86400',
     }
 });
